@@ -41,6 +41,11 @@ testem.log
 .DS_Store
 Thumbs.db
 
+# APK files — do not commit binary builds
+*.apk
+*.aab
+*.ap_
+
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
