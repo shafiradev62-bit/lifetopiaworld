@@ -1,14 +1,13 @@
 /**
  * Solana Token Integration
  * Lifetopia Gold (LFG) token operations using @solana/web3.js + @solana/spl-token
- *
- * IMPORTANT: Install packages first:
- *   pnpm add @solana/web3.js @solana/spl-token
- *
- * Or use CDN (fallback):
- *   import { Connection, PublicKey, Transaction } from 'https://esm.sh/@solana/web3.js@1.87.6';
- *   import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from 'https://esm.sh/@solana/spl-token@0.4.6';
  */
+
+// Browser polyfill — must be first so Buffer exists before @solana/web3.js loads
+import { Buffer } from "buffer";
+if (typeof globalThis.Buffer === "undefined") {
+  globalThis.Buffer = Buffer;
+}
 
 import {
   Connection,

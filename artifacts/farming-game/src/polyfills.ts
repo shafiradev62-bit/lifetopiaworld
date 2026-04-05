@@ -1,15 +1,16 @@
+/**
+ * Browser polyfills — loaded before main.tsx
+ * Handles Node.js globals needed by @solana/web3.js and other packages.
+ */
+
 import { Buffer } from "buffer";
 
-// Must be set before any Solana/Web3 code runs
-if (typeof globalThis.Buffer === "undefined") {
-  globalThis.Buffer = Buffer;
-} else {
-  // Ensure it's the real buffer package, not a fake polyfill
-  globalThis.Buffer = Buffer;
-}
-
+// Ensure globalThis globals exist before any module code runs
 if (typeof globalThis.global === "undefined") {
   (globalThis as any).global = globalThis;
+}
+if (typeof globalThis.Buffer === "undefined") {
+  globalThis.Buffer = Buffer;
 }
 
 export {};

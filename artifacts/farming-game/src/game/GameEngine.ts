@@ -952,11 +952,8 @@ function handleMovement(s: GameState, _dt: number, stateRef?: MutableRefObject<G
     return;
   }
 
-  // Mobile safety: completely disable keyboard-set keys on touch devices.
-  // Mobile should ONLY use tap-to-move (targetX/Y) or the D-pad joystick.
-  if (typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-    s.keys.clear();
-  }
+  // Virtual joystick and on-screen controls write arrow keys into the same Set as WASD.
+  // Never clear keys here on mobile — that made the joystick dead every frame.
 
   const diff = FARM_BALANCE_PRESETS[s.farmBalancePreset];
   const baseSpeed = p.speed + diff.playerSpeedBonus;
@@ -1116,7 +1113,13 @@ function updateCamera(s: GameState) {
 
   // Enforce minimum zoom so map always covers full viewport (no empty edges)
   const coverZoom = Math.max(cw / w, ch / h);
-  const minZoom = s.currentMap === "home" ? 1.8 : coverZoom * 1.25;
+  // On home map: ensure full farm grid (y=259 to y=395) fits in viewport.
+  // At minZoom=1.8 with small mobile viewport (e.g. 667px), visible=370px clips the bottom row.
+  // Use the minimum zoom needed to show the whole farm, capped at 1.8 for visual quality.
+  const farmMinZoom = ch / (FARM_GRID.startY + FARM_GRID.rows * FARM_GRID.cellH);
+  const minZoom = s.currentMap === "home"
+    ? Math.min(1.8, Math.max(1.0, farmMinZoom))
+    : coverZoom * 1.25;
   if (s.zoom < minZoom) s.zoom = minZoom;
   if (s.targetZoom < minZoom) s.targetZoom = minZoom;
   

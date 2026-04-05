@@ -45,9 +45,36 @@ export function isMobilePlatform(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-/** Open Phantom, Solflare, Backpack, MetaMask or Trust Wallet via Universal Link / deep link on mobile */
-export function openWalletDeepLink(walletType: "phantom" | "solflare" | "backpack" | "metamask" | "trust", dappUrl?: string): void {
-  const url = dappUrl || window.location.href;
+/** HTTPS URL Phantom/Solflare can load in in-app browser. Local / file / http breaks with "error loading page". */
+export function resolveWalletBrowseUrl(override?: string): string | null {
+  const fromEnv =
+    typeof import.meta !== "undefined"
+      ? ((import.meta as unknown as { env?: { VITE_WALLET_DAPP_URL?: string } }).env?.VITE_WALLET_DAPP_URL)
+      : undefined;
+  const candidates = [override, fromEnv].filter((u): u is string => typeof u === "string" && u.length > 0);
+  for (const c of candidates) {
+    try {
+      const u = new URL(c);
+      if (u.protocol === "https:") return u.toString();
+    } catch { /* ignore */ }
+  }
+  if (typeof window === "undefined") return null;
+  try {
+    const u = new URL(window.location.href);
+    if (u.protocol === "https:" && u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+      return window.location.href;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/** Open wallet app to browse this dapp. Returns false if no valid HTTPS URL (caller should show a hint). */
+export function openWalletDeepLink(walletType: "phantom" | "solflare" | "backpack" | "metamask" | "trust", dappUrl?: string): boolean {
+  const url = resolveWalletBrowseUrl(dappUrl);
+  if (!url) {
+    console.warn("[MobileController] No HTTPS dapp URL — set VITE_WALLET_DAPP_URL or deploy to https://");
+    return false;
+  }
   const encoded = encodeURIComponent(url);
   const host = url.replace(/^https?:\/\//, "");
 
@@ -83,12 +110,12 @@ export function openWalletDeepLink(walletType: "phantom" | "solflare" | "backpac
       }).catch(() => {
         window.location.href = getWebFallback(walletType, encoded, host);
       });
-      return;
+      return true;
     }
   }
 
-  // Fallback for mobile web
   window.location.href = getWebFallback(walletType, encoded, host);
+  return true;
 }
 
 function getWebFallback(walletType: "phantom" | "solflare" | "backpack" | "metamask" | "trust", encoded: string, host: string): string {

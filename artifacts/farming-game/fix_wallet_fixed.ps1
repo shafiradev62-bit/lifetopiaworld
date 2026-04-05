@@ -1,45 +1,78 @@
 $filePath = "FarmingGame.tsx"
-$content = Get-Content $filePath -Raw
+$content  = Get-Content $filePath -Raw
 
-# Add import after MobileController import
 $importLine = 'import { solanaWallet } from "../game/Web3Config";'
-$pattern = '(import \{\s+isMobilePlatform, openWalletDeepLink, detectWalletEnvironment, detectMobileWallets,\s+setupWalletDeepLinkHandler,\s+\} from "\.\./game/MobileController";)'
-$replacement = "`$1`n$importLine"
-$content = $content -replace $pattern, $replacement
 
-# Replace connectWeb3 function
-$oldFuncStart = '// ── Connect via Web3Modal — works in-app on mobile (DApp style) ─────────────'
-$oldFuncEnd = '}, \[\]); // eslint-disable-line react-hooks/exhaustive-deps'
-$startIndex = $content.IndexOf($oldFuncStart)
-$endIndex = $content.IndexOf($oldFuncEnd) + $oldFuncEnd.Length
+$mobileImportPattern = '(import \{\s+isMobilePlatform, openWalletDeepLink, detectWalletEnvironment, detectMobileWallets,\s+setupWalletDeepLinkHandler,\s+\} from "\.\./game/MobileController";)'
 
-if ($startIndex -ge 0 -and $endIndex -gt $startIndex) {
-    $newFunc = @"
-// ── Connect to Solana Wallet (Phantom) - REAL CONNECTION, NO BLOCKING ─────────────
-  const connectWeb3 = useCallback(async () => {
-    try {
-      setConnectingWallet("solana");
-      
-      // Connect to Phantom/Solana wallet - DIRECT connection, no blocking!
-      const result = await solanaWallet.connect();
-      
-      if (result && result.publicKey) {
-        _onWalletConnected(result.publicKey, "solana", null, 'PHANTOM');
-      }
-      
-      setConnectingWallet(null);
-    } catch (e) {
-      console.error("[Solana Wallet]", e);
-      stateRef.current.notification = { text: "WALLET CONNECT FAILED", life: 120 };
-      setDs({ ...stateRef.current });
-      setConnectingWallet(null);
-    }
-  }, [_onWalletConnected]); // eslint-disable-line react-hooks/exhaustive-deps
-"@
-    
-    $content = $content.Remove($startIndex, $endIndex - $startIndex).Insert($startIndex, $newFunc)
+if ($content -notmatch [regex]::Escape($importLine)) {
+    $content = $content -replace $mobileImportPattern, "`$1`n$importLine"
 }
 
-$content | Set-Content $filePath -NoNewline
-Write-Host "Success Wallet connection fixed!"
+$startMarker = '// ── Connect via Web3Modal — works in-app on mobile (DApp style) ─────────────'
+$endMarker   = '}, \[\]); // eslint-disable-line react-hooks/exhaustive-deps'
 
+$startIndex = $content.IndexOf($startMarker)
+$endIndex   = $content.IndexOf($endMarker)
+
+if ($startIndex -ge 0 -and $endIndex -gt $startIndex) {
+
+    $endIndex += $endMarker.Length
+
+    $newFunction = @"
+const connectWeb3 = useCallback(async () => {
+  setConnectingWallet("solana");
+
+  try {
+    const provider =
+      window?.phantom?.solana ||
+      window?.solflare ||
+      window?.backpack?.solana ||
+      null;
+
+    if (!provider) {
+      throw new Error("NO_SOLANA_PROVIDER");
+    }
+
+    const resp = await provider.connect();
+
+    const publicKey =
+      resp?.publicKey?.toString?.() ||
+      provider?.publicKey?.toString?.() ||
+      null;
+
+    if (!publicKey) {
+      throw new Error("NO_PUBLIC_KEY");
+    }
+
+    const walletName =
+      provider?.isPhantom ? "PHANTOM" :
+      provider?.isSolflare ? "SOLFLARE" :
+      provider?.isBackpack ? "BACKPACK" :
+      "SOLANA";
+
+    _onWalletConnected(publicKey, "solana", null, walletName);
+
+  } catch (error) {
+    console.error("[SOLANA_CONNECT]", error);
+
+    stateRef.current.notification = {
+      text: "WALLET CONNECT FAILED",
+      life: 120,
+    };
+
+    setDs({ ...stateRef.current });
+
+  } finally {
+    setConnectingWallet(null);
+  }
+}, [_onWalletConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+"@
+
+    $content = $content.Remove($startIndex, $endIndex - $startIndex)
+    $content = $content.Insert($startIndex, $newFunction)
+}
+
+Set-Content -Path $filePath -Value $content -NoNewline
+
+Write-Host "OK"

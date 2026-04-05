@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { App } from "@capacitor/app";
 import {
   GameState, MapType, SHOP_ITEMS, FARM_GRID, FarmBalancePreset,
@@ -29,11 +29,11 @@ import {
 import {
   isMobilePlatform, openWalletDeepLink, detectWalletEnvironment, detectMobileWallets,
   setupWalletDeepLinkHandler,
+  getTouchQuadrant, quadrantToKeys,
 } from "../game/MobileController";
 import { solanaWallet } from "../game/Web3Config";
 import WorldMapScreen from "../components/WorldMapScreen";
-import MobileHUD from "../components/MobileHUD";
-import MobileJoystick from "../components/MobileJoystick";
+import MobileHUD, { mobileHudAccentBtnStyle, mobileHudActionBtnStyle } from "../components/MobileHUD";
 import ActionPopup, { type ActionPopupData } from "../components/ActionPopup";
 import { registerDemoTrigger, abortDemo } from "../game/DemoScript";
 
@@ -104,28 +104,28 @@ function getFarmStatusGuide(plots: GameState["farmPlots"], activeTool: string | 
   // Priority: DEAD crops > UNTILLED plots > EMPTY TILLED plots > NEED WATER > GROWING > HARVEST READY
   // This ensures the player always knows what to do next without confusion
   if (dead > 0) {
-    return { action: `CLEAR ${dead} WITHERED CROP${dead > 1 ? "S" : ""} â€” PRESS [2] AXE`, slot: 2, slotLabel: "AXE" };
+    return { action: `CLEAR ${dead} WITHERED CROP${dead > 1 ? "S" : ""} - PRESS [2] AXE`, slot: 2, slotLabel: "AXE" };
   }
   if (needTill > 0) {
-    return { action: `TILL ${needTill} PLOT${needTill > 1 ? "S" : ""} â€” PRESS [1] HOE THEN CLICK`, slot: 1, slotLabel: "HOE" };
+    return { action: `TILL ${needTill} PLOT${needTill > 1 ? "S" : ""} - PRESS [1] HOE THEN TAP`, slot: 1, slotLabel: "HOE" };
   }
   if (needSeed > 0) {
     // Determine which seed slot based on active tool
     if (activeTool && activeTool.endsWith("-seed")) {
-      return { action: `PLOT READY â€” TAP THE PLOT TO PLANT!`, slot: null, slotLabel: null };
+      return { action: `PLOT READY - TAP THE PLOT TO PLANT!`, slot: null, slotLabel: null };
     }
     return { action: `SELECT SEED [5-8] THEN TAP A PLOT`, slot: 5, slotLabel: "SEED" };
   }
   if (needWater > 0) {
-    return { action: `WATER ${needWater} GROWING PLOT${needWater > 1 ? "S" : ""} â€” PRESS [4] WATER`, slot: 4, slotLabel: "WATER" };
+    return { action: `WATER ${needWater} GROWING PLOT${needWater > 1 ? "S" : ""} - PRESS [4] WATER`, slot: 4, slotLabel: "WATER" };
   }
   if (growing > 0) {
-    return { action: `${growing} PLOT${growing > 1 ? "S" : ""} GROWING â€” WAIT OR USE BOOST!`, slot: null, slotLabel: null };
+    return { action: `${growing} PLOT${growing > 1 ? "S" : ""} GROWING - WAIT OR USE BOOST!`, slot: null, slotLabel: null };
   }
   if (ready > 0) {
-    return { action: `HARVEST ${ready} READY CROP${ready > 1 ? "S" : ""} â€” PRESS [1] HOE`, slot: 1, slotLabel: "HOE" };
+    return { action: `HARVEST ${ready} READY CROP${ready > 1 ? "S" : ""} - PRESS [1] HOE`, slot: 1, slotLabel: "HOE" };
   }
-  return { action: `TILL SOIL TO START â€” PRESS [1] HOE`, slot: 1, slotLabel: "HOE" };
+  return { action: `TILL SOIL TO START - PRESS [1] HOE`, slot: 1, slotLabel: "HOE" };
 }
 
 export default function FarmingGame() {
@@ -133,8 +133,15 @@ export default function FarmingGame() {
   const stateRef = useRef<GameState>(createInitialState());
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
-  // Track mobile touch start for tap-to-move detection
-  const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  /** Mobile: one-finger pan = walk (quadrant keys); quick release = tap canvas (farm / move) */
+  const mobilePanRef = useRef<{
+    id: number;
+    sx: number;
+    sy: number;
+    t0: number;
+    maxD: number;
+    activeDir: ReturnType<typeof getTouchQuadrant>;
+  } | null>(null);
   const [ds, setDs] = useState<GameState>(stateRef.current);
   const [guestId] = useState(() => {
     const saved = localStorage.getItem("guest_id");
@@ -363,7 +370,7 @@ export default function FarmingGame() {
       setWalletType(null);
       setWalletConnected(true);
       stateRef.current.player.walletAddress = gAddr;
-      stateRef.current.notification = { text: "WELCOME! CONNECT WALLET TO SAVE PROGRESS", life: 200 };
+      stateRef.current.notification = { text: "WELCOME! SYNC PROGRESS WITH WALLET", life: 200 };
     }
     setDs({ ...stateRef.current });
     // Demo starts after player picks a map from world map screen
@@ -476,106 +483,212 @@ export default function FarmingGame() {
   const connectPhantom = async () => {
     const w = window as any;
     const sol = w.phantom?.solana ?? w.solana;
-    // On mobile: always try deep link first (Capacitor or mobile browser)
-    if (!sol?.connect || isMobile) {
-      if (isMobile) { 
-        console.log("[Phantom] Opening deep link...");
-        openWalletDeepLink("phantom"); 
-        return; 
+    const injected = !!(sol?.connect && (sol.isPhantom || w.phantom?.solana));
+    if (injected) {
+      setConnectingWallet("phantom");
+      try {
+        let res: any;
+        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+        if (!res?.publicKey && !sol.publicKey) {
+          res = await sol.connect();
+        }
+        const pk = res?.publicKey ?? sol.publicKey;
+        if (!pk) throw new Error("No public key returned");
+        await _onWalletConnected(pk.toString(), "solana", sol);
+      } catch (e: any) {
+        console.error("[Phantom]", e);
+        stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+        setDs({ ...stateRef.current });
+      } finally {
+        setConnectingWallet(null);
       }
-      stateRef.current.notification = { text: "PHANTOM NOT INSTALLED â€” INSTALL FROM PHANTOM.APP", life: 150 };
-      setDs({ ...stateRef.current });
       return;
     }
-    setConnectingWallet("phantom");
-    try {
-      let res: any;
-      try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-      if (!res?.publicKey && !sol.publicKey) {
-        res = await sol.connect();
+    if (isMobile) {
+      // On mobile WebViews (Capacitor / Chrome), Phantom may have injected its provider.
+      // Try it first — this avoids needing HTTPS URLs entirely.
+      const mobilePhantom = (window as any).phantom?.solana ?? (window as any).solana;
+      if (mobilePhantom?.isPhantom && typeof mobilePhantom.connect === "function") {
+        setConnectingWallet("phantom");
+        try {
+          let res: any;
+          try { res = await mobilePhantom.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+          if (!res?.publicKey && !mobilePhantom.publicKey) res = await mobilePhantom.connect();
+          const pk = res?.publicKey ?? mobilePhantom.publicKey;
+          if (!pk) throw new Error("No public key returned");
+          await _onWalletConnected(pk.toString(), "solana", mobilePhantom);
+        } catch (e: any) {
+          console.error("[Phantom Mobile]", e);
+          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+          setDs({ ...stateRef.current });
+        } finally {
+          setConnectingWallet(null);
+        }
+        return;
       }
-      const pk = res?.publicKey ?? sol.publicKey;
-      if (!pk) throw new Error("No public key returned");
-      await _onWalletConnected(pk.toString(), "solana", sol);
-    } catch (e: any) {
-      console.error("[Phantom]", e);
-      stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-      setDs({ ...stateRef.current });
-    } finally {
-      setConnectingWallet(null);
+      // No injected provider — try HTTPS deep link
+      if (!openWalletDeepLink("phantom")) {
+        stateRef.current.notification = {
+          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
+          life: 300,
+        };
+        setDs({ ...stateRef.current });
+      }
+      return;
     }
+    stateRef.current.notification = { text: "PHANTOM NOT INSTALLED - GET IT AT PHANTOM.APP", life: 150 };
+    setDs({ ...stateRef.current });
   };
 
   // â”€â”€ Connect Solflare - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectSolflare = async () => {
     const w = window as any;
     const sol = w.solflare ?? w.solana;
-    if (!sol?.connect || isMobile) {
-      if (isMobile) { 
-        console.log("[Solflare] Opening deep link...");
-        openWalletDeepLink("solflare"); 
-        return; 
+    const injected = !!(sol?.connect && (w.solflare?.isSolflare || sol?.isSolflare));
+    if (injected) {
+      setConnectingWallet("solflare");
+      try {
+        let res: any;
+        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+        if (!res?.publicKey && !sol.publicKey) {
+          res = await sol.connect();
+        }
+        const pk = res?.publicKey ?? sol.publicKey;
+        if (!pk) throw new Error("No public key returned");
+        await _onWalletConnected(pk.toString(), "solana", sol);
+      } catch (e: any) {
+        console.error("[Solflare]", e);
+        stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+        setDs({ ...stateRef.current });
+      } finally {
+        setConnectingWallet(null);
       }
-      stateRef.current.notification = { text: "SOLFLARE NOT INSTALLED â€” INSTALL FROM SOLFLARE.COM", life: 150 };
-      setDs({ ...stateRef.current });
       return;
     }
-    setConnectingWallet("solflare");
-    try {
-      let res: any;
-      try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-      if (!res?.publicKey && !sol.publicKey) {
-        res = await sol.connect();
+    if (isMobile) {
+      // On mobile WebViews, Solflare may have injected its provider.
+      const mobileSolflare = (window as any).solflare ?? (window as any).solana;
+      if (mobileSolflare?.isSolflare && typeof mobileSolflare.connect === "function") {
+        setConnectingWallet("solflare");
+        try {
+          let res: any;
+          try { res = await mobileSolflare.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+          if (!res?.publicKey && !mobileSolflare.publicKey) res = await mobileSolflare.connect();
+          const pk = res?.publicKey ?? mobileSolflare.publicKey;
+          if (!pk) throw new Error("No public key returned");
+          await _onWalletConnected(pk.toString(), "solana", mobileSolflare);
+        } catch (e: any) {
+          console.error("[Solflare Mobile]", e);
+          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+          setDs({ ...stateRef.current });
+        } finally {
+          setConnectingWallet(null);
+        }
+        return;
       }
-      const pk = res?.publicKey ?? sol.publicKey;
-      if (!pk) throw new Error("No public key returned");
-      await _onWalletConnected(pk.toString(), "solana", sol);
-    } catch (e: any) {
-      console.error("[Solflare]", e);
-      stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-      setDs({ ...stateRef.current });
-    } finally {
-      setConnectingWallet(null);
+      if (!openWalletDeepLink("solflare")) {
+        stateRef.current.notification = {
+          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
+          life: 300,
+        };
+        setDs({ ...stateRef.current });
+      }
+      return;
     }
+    stateRef.current.notification = { text: "SOLFLARE NOT INSTALLED - GET IT AT SOLFLARE.COM", life: 150 };
+    setDs({ ...stateRef.current });
   };
 
   // â”€â”€ Connect Backpack - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectBackpack = async () => {
     const w = window as any;
     const sol = w.backpack ?? w.solana;
-    if (!sol?.connect || isMobile) {
-      if (isMobile) { 
-        console.log("[Backpack] Opening deep link...");
-        openWalletDeepLink("backpack"); 
-        return; 
+    const injected = !!(sol?.connect && w.backpack?.isBackpack);
+    if (injected) {
+      setConnectingWallet("backpack");
+      try {
+        let res: any;
+        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+        if (!res?.publicKey && !sol.publicKey) {
+          res = await sol.connect();
+        }
+        const pk = res?.publicKey ?? sol.publicKey;
+        if (!pk) throw new Error("No public key returned");
+        await _onWalletConnected(pk.toString(), "solana", sol);
+      } catch (e: any) {
+        console.error("[Backpack]", e);
+        stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+        setDs({ ...stateRef.current });
+      } finally {
+        setConnectingWallet(null);
       }
-      stateRef.current.notification = { text: "BACKPACK NOT INSTALLED â€” INSTALL FROM BACKPACK.APP", life: 150 };
-      setDs({ ...stateRef.current });
       return;
     }
-    setConnectingWallet("backpack");
-    try {
-      let res: any;
-      try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-      if (!res?.publicKey && !sol.publicKey) {
-        res = await sol.connect();
+    if (isMobile) {
+      // On mobile WebViews, Backpack may have injected its provider.
+      const mobileBackpack = (window as any).backpack ?? (window as any).solana;
+      if (mobileBackpack?.isBackpack && typeof mobileBackpack.connect === "function") {
+        setConnectingWallet("backpack");
+        try {
+          let res: any;
+          try { res = await mobileBackpack.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+          if (!res?.publicKey && !mobileBackpack.publicKey) res = await mobileBackpack.connect();
+          const pk = res?.publicKey ?? mobileBackpack.publicKey;
+          if (!pk) throw new Error("No public key returned");
+          await _onWalletConnected(pk.toString(), "solana", mobileBackpack);
+        } catch (e: any) {
+          console.error("[Backpack Mobile]", e);
+          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+          setDs({ ...stateRef.current });
+        } finally {
+          setConnectingWallet(null);
+        }
+        return;
       }
-      const pk = res?.publicKey ?? sol.publicKey;
-      if (!pk) throw new Error("No public key returned");
-      await _onWalletConnected(pk.toString(), "solana", sol);
-    } catch (e: any) {
-      console.error("[Backpack]", e);
-      stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-      setDs({ ...stateRef.current });
-    } finally {
-      setConnectingWallet(null);
+      if (!openWalletDeepLink("backpack")) {
+        stateRef.current.notification = {
+          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
+          life: 300,
+        };
+        setDs({ ...stateRef.current });
+      }
+      return;
     }
+    stateRef.current.notification = { text: "BACKPACK NOT INSTALLED - GET IT AT BACKPACK.APP", life: 150 };
+    setDs({ ...stateRef.current });
   };
 
   // â”€â”€ Connect to Solana Wallet (Phantom) - REAL CONNECTION, NO BLOCKING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectWeb3 = useCallback(async () => {
     if (isMobilePlatform()) {
-      openWalletDeepLink("phantom");
+      // Try injected provider first — Phantom/Solflare inject into Android WebViews
+      const mobilePhantom = (window as any).phantom?.solana ?? (window as any).solana;
+      if (mobilePhantom?.isPhantom && typeof mobilePhantom.connect === "function") {
+        setConnectingWallet("web3");
+        try {
+          let res: any;
+          try { res = await mobilePhantom.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
+          if (!res?.publicKey && !mobilePhantom.publicKey) res = await mobilePhantom.connect();
+          const pk = res?.publicKey ?? mobilePhantom.publicKey;
+          if (!pk) throw new Error("No public key returned");
+          await _onWalletConnected(pk.toString(), "solana", mobilePhantom);
+        } catch (e: any) {
+          console.error("[Web3 Mobile]", e);
+          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
+          setDs({ ...stateRef.current });
+        } finally {
+          setConnectingWallet(null);
+        }
+        return;
+      }
+      // No injected provider — try HTTPS deep link
+      if (!openWalletDeepLink("phantom")) {
+        stateRef.current.notification = {
+          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
+          life: 300,
+        };
+        setDs({ ...stateRef.current });
+      }
       return;
     }
     try {
@@ -605,7 +718,7 @@ export default function FarmingGame() {
     setWalletConnected(true);
     stateRef.current.player.walletAddress = gAddr;
     AudioManager.playSFX("click");
-    const notifText = "PLAYING AS GUEST â€” CONNECT WALLET TO SAVE PROGRESS";
+    const notifText = "PLAYING AS GUEST - CONNECT WALLET TO SAVE PROGRESS";
     stateRef.current.notification = { text: notifText, life: 160 };
     triggerPopup(notifText);
     setDs({ ...stateRef.current });
@@ -661,6 +774,8 @@ export default function FarmingGame() {
         verifyWalletWithSupabase(proof).catch(console.error);
       }).catch(e => console.warn("[WalletHandshake] Sign skipped:", e?.message));
     }
+  };
+
   const disconnectWallet = () => {
     setWalletConnected(false);
     setWalletAddress("");
@@ -741,7 +856,7 @@ export default function FarmingGame() {
       console.error("[Persistence] Save error (Gold persisted locally):", e);
       // Removed: Restoring snap.gold here causes "stuck gold" bugs when sync fails.
       // We rely on local state being canonical and cloud catch-up later.
-      stateRef.current.notification = { text: "CLOUD SYNC DELAYED â€” PROGRESS SAVED LOCALLY", life: 100 };
+      stateRef.current.notification = { text: "CLOUD SYNC DELAYED - PROGRESS SAVED LOCALLY", life: 100 };
       setDs({ ...stateRef.current });
     } finally {
       stateRef.current.pendingCloudSave = false;
@@ -909,13 +1024,30 @@ export default function FarmingGame() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false; // HD rendering â€” no more "pecah grafik"
 
+
+
+
+
+    // Resize canvas to match device screen (critical for mobile/APK blank screen fix)
+    const resizeCanvas = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        ctx.imageSmoothingEnabled = false;
+      }
+    };
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 100));
     const loop = (ts: number) => {
       const dt = Math.min(ts - (lastTimeRef.current || ts) || 16, 32);
       lastTimeRef.current = ts;
 
       // Sync viewport size every frame so camera covers full screen
-      stateRef.current.viewportW = canvas.clientWidth || window.innerWidth;
-      stateRef.current.viewportH = canvas.clientHeight || window.innerHeight;
+      stateRef.current.viewportW = canvas.width || window.innerWidth;
+      stateRef.current.viewportH = canvas.height || window.innerHeight;
 
       // Guard FARM_GRID integrity
       if (FARM_GRID.cols !== 3 || FARM_GRID.rows !== 2 || FARM_GRID.cellW !== 83 || FARM_GRID.cellH !== 68 || FARM_GRID.startX !== 197 || FARM_GRID.startY !== 259) {
@@ -946,8 +1078,15 @@ export default function FarmingGame() {
         void saveProgress().finally(() => { cloudSaveBusy.current = false; });
       }
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      renderGame(ctx, stateRef.current, canvas.width, canvas.height);
+      try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        renderGame(ctx, stateRef.current, canvas.width, canvas.height);
+      } catch (err) {
+        console.error("[GameLoop] renderGame crashed:", err);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#1a1a2e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
 
       if (stateRef.current.activePanel !== activePanel) setActivePanel(stateRef.current.activePanel);
       // â”€â”€ LOOP PERFORMANCE: Update UI at 15fps instead of 8fps for smoother feedback â”€â”€
@@ -957,7 +1096,10 @@ export default function FarmingGame() {
       animRef.current = requestAnimationFrame(loop);
     };
     animRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animRef.current);
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      window.removeEventListener("resize", resizeCanvas);
+    };
   }, [loaded, splashDone, introTutorialDone]);
 
   // â”€â”€ Tool selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -966,7 +1108,7 @@ export default function FarmingGame() {
     const cropGate = toolIdToCrop(toolId);
     if (cropGate && !isCropPlantingUnlocked(cropGate, stateRef.current.player.level, stateRef.current.farmBalancePreset)) {
       const need = seedUnlockLevel(cropGate, stateRef.current.farmBalancePreset);
-      stateRef.current.notification = { text: `LOCKED â€” UNLOCKS AT LVL ${need}`, life: 120 };
+      stateRef.current.notification = { text: `LOCKED - UNLOCKS AT LVL ${need}`, life: 120 };
       AudioManager.playSFX("fail");
       setDs({ ...stateRef.current });
       return;
@@ -976,7 +1118,7 @@ export default function FarmingGame() {
       const count = stateRef.current.player.inventory[toolId] || 0;
       if (count <= 0) {
         const cropName = toolId.replace("-seed", "").toUpperCase();
-        stateRef.current.notification = { text: `NO ${cropName} SEEDS â€” BUY FROM CITY SHOP!`, life: 160 };
+        stateRef.current.notification = { text: `NO ${cropName} SEEDS - BUY FROM CITY SHOP!`, life: 160 };
         setDs({ ...stateRef.current });
         // Still select the tool so user knows what they picked
       }
@@ -1036,6 +1178,7 @@ export default function FarmingGame() {
 
   // â”€â”€ Canvas click / touch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const onClick = (e: React.MouseEvent) => {
+    if (isMobile) return;
     if (activePanel) return;
     if (stateRef.current.demoMode) return;
     if (showWorldMap) return; // let WorldMapScreen handle it
@@ -1078,7 +1221,7 @@ export default function FarmingGame() {
     const crop = id.endsWith("-seed") ? toolIdToCrop(id) : null;
     if (crop && !isCropPlantingUnlocked(crop, s.player.level, s.farmBalancePreset)) {
       const need = seedUnlockLevel(crop, s.farmBalancePreset);
-      stateRef.current.notification = { text: `SEED LOCKED â€” LVL ${need}`, life: 90 };
+      stateRef.current.notification = { text: `SEED LOCKED - LVL ${need}`, life: 90 };
       setDs({ ...stateRef.current }); return;
     }
     if (s.player.gold < effPrice) {
@@ -1106,10 +1249,10 @@ export default function FarmingGame() {
 
   // â”€â”€ Map context hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const MAP_REASON: Record<string, string> = {
-    city:     "CITY SHOP â€” Walk to a SHOP sign, then PRESS E or CLICK to buy seeds & tools",
-    fishing:  "FISHING POND â€” Walk to the WATER edge, CLICK to cast your line",
-    garden:   "GARDEN â€” Walk around and explore! Social zone for all players",
-    suburban: "SUBURBAN â€” Walk to benches & signs to interact",
+    city:     "CITY SHOP - Walk to SHOP, tap to enter. Or tap SHOP button. Buy seeds for your farm.",
+    fishing:  "FISHING - Walk to the water, use CAST / PULL buttons",
+    garden:   "GARDEN - Walk around and explore",
+    suburban: "SUBURBAN - Walk to benches and signs to interact",
   };
   const mapHint = splashDone && introTutorialDone && ds.currentMap !== "home"
     ? MAP_REASON[ds.currentMap] ?? null : null;
@@ -1215,8 +1358,8 @@ export default function FarmingGame() {
       <div style={gameContainerStyle}>
       <canvas
         ref={canvasRef}
-        width={1280}
-        height={720}
+        width={window.innerWidth || 1280}
+        height={window.innerHeight || 720}
         onClick={onClick}
         onMouseMove={(e) => {
           const canvas = canvasRef.current;
@@ -1227,36 +1370,112 @@ export default function FarmingGame() {
         onMouseLeave={() => { stateRef.current.pointerCanvas = null; stateRef.current.plotHoverFromPointer = null; }}
         onWheel={onWheel}
         onTouchStart={(e) => {
-          const touch = e.touches[0];
-          if (!touch) return;
-          touchStartRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-          e.stopPropagation();
-        }}
-        onTouchEnd={(e) => {
-          e.preventDefault(); // prevent browser double-tap zoom
-          if (activePanel || stateRef.current.demoMode || showWorldMap) return;
+          if (!isMobile) return;
+          if (!introTutorialDone || activePanel || stateRef.current.demoMode || showWorldMap) return;
           const canvas = canvasRef.current;
           if (!canvas) return;
-          const touch = e.changedTouches[0];
-          if (!touch || !touchStartRef.current) return;
+          const t = e.touches[0];
+          if (!t) return;
+          if (mobilePanRef.current !== null) return;
 
-          // Tap-to-move: only register as movement if it was a light tap (no drag)
-          const dx = touch.clientX - touchStartRef.current.x;
-          const dy = touch.clientY - touchStartRef.current.y;
-          const dist = Math.hypot(dx, dy);
-          const dur = Date.now() - touchStartRef.current.t;
-          touchStartRef.current = null;
-
-          // If it's a tap (short, light) â†’ set player target AND trigger tool action
-          if (dist < 30 && dur < 400) {
-            const rect = canvas.getBoundingClientRect();
-            const mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
-            const my = (touch.clientY - rect.top) * (canvas.height / rect.height);
-            stateRef.current.keys.clear();
-            // Trigger tool action on mobile tap (handles both movement and farming)
-            stateRef.current = handleToolAction(stateRef.current, mx, my);
-            setDs({ ...stateRef.current });
+          const rect = canvas.getBoundingClientRect();
+          const dir = getTouchQuadrant(
+            t.clientX - rect.left,
+            t.clientY - rect.top,
+            rect.width,
+            rect.height,
+          );
+          mobilePanRef.current = {
+            id: t.identifier,
+            sx: t.clientX,
+            sy: t.clientY,
+            t0: Date.now(),
+            maxD: 0,
+            activeDir: dir,
+          };
+          if (dir) {
+            quadrantToKeys(dir).forEach((k) => stateRef.current.keys.add(k));
           }
+          e.stopPropagation();
+        }}
+        onTouchMove={(e) => {
+          if (!isMobile || !mobilePanRef.current) return;
+          const m = mobilePanRef.current;
+          let t: React.Touch | null = null;
+          for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === m.id) {
+              t = e.touches[i];
+              break;
+            }
+          }
+          if (!t) return;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          m.maxD = Math.max(m.maxD, Math.hypot(t.clientX - m.sx, t.clientY - m.sy));
+          const rect = canvas.getBoundingClientRect();
+          const newDir = getTouchQuadrant(
+            t.clientX - rect.left,
+            t.clientY - rect.top,
+            rect.width,
+            rect.height,
+          );
+          if (newDir !== m.activeDir) {
+            ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
+            m.activeDir = newDir;
+            if (newDir) {
+              quadrantToKeys(newDir).forEach((k) => stateRef.current.keys.add(k));
+            }
+          }
+          e.preventDefault();
+        }}
+        onTouchEnd={(e) => {
+          if (!isMobile || !mobilePanRef.current) return;
+          const m = mobilePanRef.current;
+          let endTouch: React.Touch | null = null;
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === m.id) {
+              endTouch = e.changedTouches[i];
+              break;
+            }
+          }
+          if (!endTouch) {
+            mobilePanRef.current = null;
+            return;
+          }
+
+          ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
+
+          const dur = Date.now() - m.t0;
+          const tap =
+            dur < 380 &&
+            m.maxD < 38 &&
+            !(m.activeDir !== null && dur > 240);
+
+          if (tap && introTutorialDone && !activePanel && !stateRef.current.demoMode && !showWorldMap) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const rect = canvas.getBoundingClientRect();
+              const mx = (endTouch.clientX - rect.left) * (canvas.width / rect.width);
+              const my = (endTouch.clientY - rect.top) * (canvas.height / rect.height);
+              stateRef.current.keys.clear();
+              const ps = stateRef.current.player;
+              const oldStep = ps.tutorialStep;
+              stateRef.current = handleToolAction(stateRef.current, mx, my);
+              if (oldStep === 2 && stateRef.current.farmPlots.some((p) => p.tilled)) ps.tutorialStep = 3;
+              if (oldStep === 4 && stateRef.current.farmPlots.some((p) => p.fertilized)) ps.tutorialStep = 5;
+              if (oldStep === 6 && stateRef.current.farmPlots.some((p) => p.crop)) ps.tutorialStep = 7;
+              if (oldStep === 8 && stateRef.current.farmPlots.some((p) => p.watered)) ps.tutorialStep = 9;
+              setDs({ ...stateRef.current });
+            }
+          }
+
+          mobilePanRef.current = null;
+          e.preventDefault();
+        }}
+        onTouchCancel={() => {
+          if (!isMobile || !mobilePanRef.current) return;
+          ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
+          mobilePanRef.current = null;
         }}
         style={{
           display: "block",
@@ -1339,7 +1558,7 @@ export default function FarmingGame() {
           tools={TOOLS}
           onSelectTool={selectTool}
           onOpenPanel={setActivePanel}
-          onOpenWorldMap={() => setShowWorldMap(true)}
+          onOpenWorldMap={() => { setShowWorldMap(true); AudioManager.playSFX("click"); }}
           currentMap={ds.currentMap}
           gold={ds.player.gold}
           level={ds.player.level}
@@ -1347,20 +1566,84 @@ export default function FarmingGame() {
           boostCharges={boostCharges}
           onBoost={useFarmBoost}
           isGuest={walletType === null}
-        />
-      )}
-
-      {/* â”€â”€ MOBILE JOYSTICK (analog, ML-style) â€” touch left half to move â”€â”€ */}
-      {isMobile && splashDone && introTutorialDone && !ds.demoMode && !showWorldMap && !activePanel && (
-        <MobileJoystick
-          onDirChange={(keys, active) => {
-            if (active) {
-              keys.forEach(k => stateRef.current.keys.add(k));
-            } else {
-              keys.forEach(k => stateRef.current.keys.delete(k));
-            }
-          }}
-          disabled={!!activePanel || showWorldMap}
+          mapActions={
+            !activePanel ? (
+              <>
+                {ds.currentMap === "city" && (
+                  <button
+                    type="button"
+                    style={mobileHudAccentBtnStyle}
+                    onClick={() => { setActivePanel("shop"); AudioManager.playSFX("click"); }}
+                  >
+                    SHOP
+                  </button>
+                )}
+                {ds.currentMap === "home" && (
+                  <button
+                    type="button"
+                    style={ds.player.tool ? mobileHudAccentBtnStyle : mobileHudActionBtnStyle}
+                    onClick={() => {
+                      if (stateRef.current.demoMode) return;
+                      const s = stateRef.current;
+                      const canvas = canvasRef.current;
+                      if (!canvas) return;
+                      const p = s.player;
+                      const wx = (p.x * s.zoom - s.cameraX);
+                      const wy = (p.y * s.zoom - s.cameraY);
+                      const scaleX = canvas.width / canvas.clientWidth;
+                      const scaleY = canvas.height / canvas.clientHeight;
+                      stateRef.current = handleToolAction(stateRef.current, wx * scaleX, wy * scaleY);
+                      setDs({ ...stateRef.current });
+                      AudioManager.playSFX("click");
+                    }}
+                  >
+                    {ds.player.tool ? "USE" : "ACT"}
+                  </button>
+                )}
+                {ds.currentMap === "fishing" && (
+                  <button
+                    type="button"
+                    style={
+                      ds.fishingSession && (ds.fishingSession.state === "bite" || ds.fishingSession.state === "struggle")
+                        ? mobileHudAccentBtnStyle
+                        : mobileHudActionBtnStyle
+                    }
+                    onClick={() => { handleFishingAction(stateRef.current); setDs({ ...stateRef.current }); AudioManager.playSFX("click"); }}
+                  >
+                    {!ds.fishingSession
+                      ? "CAST"
+                      : ds.fishingSession.state === "bite" || ds.fishingSession.state === "struggle"
+                        ? "PULL"
+                        : "WAIT"}
+                  </button>
+                )}
+                {ds.currentMap === "garden" && (
+                  <>
+                    {[
+                      { key: "wave", label: "1" },
+                      { key: "dance", label: "2" },
+                      { key: "sit", label: "3" },
+                      { key: "laugh", label: "4" },
+                    ].map((emote) => (
+                      <button
+                        key={emote.key}
+                        type="button"
+                        style={mobileHudActionBtnStyle}
+                        onClick={() => {
+                          stateRef.current.player.emote = emote.key as any;
+                          stateRef.current.player.emoteUntil = stateRef.current.time + 5000;
+                          setDs({ ...stateRef.current });
+                          AudioManager.playSFX("click");
+                        }}
+                      >
+                        {emote.label}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </>
+            ) : null
+          }
         />
       )}
 
@@ -1384,18 +1667,6 @@ export default function FarmingGame() {
             MAP
           </button>
           <div className="wb gf" style={{ color: "#FFFFFF", padding: "6px 15px", pointerEvents: "none" }}>LVL {ds.player.level}</div>
-          {/* Show pulsing CONNECT WALLET when guest */}
-          {walletType === null ? (
-            <button className="wb gf" onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
-              style={{ background: "linear-gradient(180deg, #ab9ff2 0%, #512da8 100%)", borderColor: "#ab9ff2", color: "#FFF", animation: "walletPulse 2s ease-in-out infinite", fontSize: 7, padding: "8px 12px" }}>
-              CONNECT WALLET
-            </button>
-          ) : (
-            <button className="wb gf" onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
-              style={{ background: "linear-gradient(180deg, #4CAF50 0%, #2E7D32 100%)", borderColor: "#4CAF50", color: "#FFF", fontSize: 7, padding: "8px 12px" }}>
-              [OK] {walletAddress.slice(0,6)}...{walletAddress.slice(-4)}
-            </button>
-          )}
           <button className="wb gf" onClick={() => { setActivePanel("quests"); AudioManager.playSFX("click"); }} style={{ position: "relative" }}>
             TASKS
             {claimableQuests.length > 0 && <span style={{ position: "absolute", top: -6, right: -4, color: "#FFFFFF", fontSize: 14, lineHeight: 1, fontWeight: "bold", textShadow: "0 0 4px #000" }}>!</span>}
@@ -1444,7 +1715,7 @@ export default function FarmingGame() {
             textShadow: "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000",
             letterSpacing: "0.04em",
             lineHeight: 1.5,
-            whiteSpace: "nowrap",
+            whiteSpace: isMobile ? "normal" : "nowrap",
             textAlign: "center",
           }}>
             {farmGuide.action}
@@ -1473,7 +1744,7 @@ export default function FarmingGame() {
             textShadow: "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000",
             letterSpacing: "0.04em",
             lineHeight: 1.5,
-            whiteSpace: "nowrap",
+            whiteSpace: isMobile ? "normal" : "nowrap",
           }}>
             {mapHint}
           </span>
@@ -1712,11 +1983,6 @@ export default function FarmingGame() {
                     </>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 8 : 12 }}>
-                      {walletType === null && (
-                        <div className="gf" style={{ fontSize: isMobile ? 5 : 6, color: "rgba(255,220,150,0.7)", marginBottom: isMobile ? 2 : 8, lineHeight: 1.8 }}>
-                          CONNECT WALLET TO SAVE PROGRESS
-                        </div>
-                      )}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 2px 0" }}>
                         <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.15)" }} />
                         <span className="gf" style={{ fontSize: 5, color: "rgba(255,255,255,0.3)" }}>OR EXTENSIONS</span>
@@ -1973,14 +2239,14 @@ export default function FarmingGame() {
         </button>
       )}
 
-      {/* â”€â”€ FISHING ACTION BUTTON â€” compact for mobile â”€â”€ */}
-      {splashDone && ds.currentMap === "fishing" && !ds.demoMode && (
-        <div style={{ position: "absolute", bottom: isMobile ? 60 : 38, right: isMobile ? 8 : 30, zIndex: 1300, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      {/* FISHING — desktop only; mobile uses MobileHUD action row */}
+      {splashDone && ds.currentMap === "fishing" && !ds.demoMode && !isMobile && (
+        <div style={{ position: "absolute", bottom: 38, right: 30, zIndex: 1300, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
           {/* Fishing instruction label */}
           {(!ds.fishingSession || ds.fishingSession.state === "casting") && (
             <div style={{
               fontFamily: "'Press Start 2P', monospace",
-              fontSize: isMobile ? 5 : 7,
+              fontSize: 7,
               color: "#4FC3F7",
               textShadow: "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000",
               textAlign: "center",
@@ -1989,7 +2255,7 @@ export default function FarmingGame() {
           {ds.fishingSession?.state === "bite" && (
             <div style={{
               fontFamily: "'Press Start 2P', monospace",
-              fontSize: isMobile ? 5 : 7,
+              fontSize: 7,
               color: "#FFD700",
               textShadow: "1px 1px 0 #000, -1px -1px 0 #000",
               animation: "wobble 0.3s infinite",
@@ -1998,22 +2264,22 @@ export default function FarmingGame() {
           {ds.fishingSession?.state === "waiting" && (
             <div style={{
               fontFamily: "'Press Start 2P', monospace",
-              fontSize: isMobile ? 5 : 7,
+              fontSize: 7,
               color: "#FFF",
               textShadow: "1px 1px 0 #000",
-            }}>â³ Waiting for bite...</div>
+            }}>Waiting for bite...</div>
           )}
           <button
             onClick={() => { handleFishingAction(stateRef.current); setDs({ ...stateRef.current }); }}
             onTouchEnd={(e) => { e.preventDefault(); handleFishingAction(stateRef.current); setDs({ ...stateRef.current }); }}
             className="wb gf"
             style={{
-              width: isMobile ? 52 : 140,
-              height: isMobile ? 36 : 60,
+              width: 140,
+              height: 60,
               background: ds.fishingSession ? "linear-gradient(180deg, #FFD700 0%, #C8A020 100%)" : undefined,
               boxShadow: ds.fishingSession ? "0 3px 0 #8d6e15, 0 0 10px rgba(255,215,0,0.4)" : "0 3px 0 #3a2212",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: isMobile ? 6 : 10, borderRadius: 999,
+              fontSize: 10, borderRadius: 999,
               touchAction: "manipulation",
               animation: ds.fishingSession?.state === "bite" ? "pulse 0.3s infinite" : undefined,
             }}
@@ -2021,128 +2287,6 @@ export default function FarmingGame() {
             {ds.fishingSession ? (ds.fishingSession.state === "bite" || ds.fishingSession.state === "struggle" ? "PULL!" : "WAIT") : "CAST"}
           </button>
         </div>
-      )}
-
-      {/* â”€â”€ CITY SHOP BUTTON â€” mobile-friendly direct shop access â”€â”€ */}
-      {isMobile && splashDone && ds.currentMap === "city" && !ds.demoMode && (
-        <div style={{ position: "absolute", bottom: 52, right: 8, zIndex: 1300 }}>
-          <button
-            className="wb gf"
-            onClick={() => { setActivePanel("shop"); AudioManager.playSFX("click"); }}
-            style={{
-              width: 70, height: 36,
-              background: "linear-gradient(180deg, #FFD700 0%, #C8A020 100%)",
-              boxShadow: "0 3px 0 #8d6e15, 0 0 8px rgba(255,215,0,0.3)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 6, borderRadius: 999,
-              touchAction: "manipulation",
-              animation: "pulse 2s infinite",
-            }}
-          >
-            SHOP
-          </button>
-        </div>
-      )}
-
-      {/* â”€â”€ GARDEN EMOTE BUTTONS â€” mobile emote quick-access â”€â”€ */}
-      {isMobile && splashDone && ds.currentMap === "garden" && !ds.demoMode && (
-        <div style={{ position: "absolute", bottom: 52, left: "50%", transform: "translateX(-50%)", zIndex: 1300, display: "flex", gap: 6 }}>
-          {[
-            { key: "wave",  label: "WAVE",   num: "1" },
-            { key: "dance", label: "DANCE",  num: "2" },
-            { key: "sit",   label: "SIT",    num: "3" },
-            { key: "laugh", label: "LAUGH",  num: "4" },
-          ].map(emote => (
-            <button
-              key={emote.key}
-              className="wb gf"
-              onClick={() => {
-                stateRef.current.player.emote = emote.key as any;
-                stateRef.current.player.emoteUntil = stateRef.current.time + 5000;
-                setDs({ ...stateRef.current });
-              }}
-              style={{ width: 48, height: 36, fontSize: 5, borderRadius: 8, touchAction: "manipulation" }}
-            >
-              {emote.num}:{emote.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* â”€â”€ SUBURBAN INTERACTION HINT â”€â”€ */}
-      {isMobile && splashDone && ds.currentMap === "suburban" && !ds.demoMode && (
-        <div style={{
-          position: "absolute", bottom: 52, left: "50%", transform: "translateX(-50%)",
-          zIndex: 1300, textAlign: "center",
-        }}>
-          <div className="gf" style={{ fontSize: 5, color: "#FFD700", textShadow: "1px 1px 0 #000", lineHeight: 1.8 }}>
-            WALK TO BENCHES & SIGNS<br/>
-            THEN TAP TO INTERACT
-          </div>
-        </div>
-      )}
-
-      {/* â”€â”€ MOBILE ACTION BUTTON (compact, tap to use active tool) â”€â”€ */}
-      {isMobile && splashDone && introTutorialDone && !activePanel && ds.currentMap === "home" && (
-        <button
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            const s = stateRef.current;
-            if (s.demoMode) return;
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const p = s.player;
-            const wx = (p.x * s.zoom - s.cameraX);
-            const wy = (p.y * s.zoom - s.cameraY);
-            const scaleX = canvas.width / canvas.clientWidth;
-            const scaleY = canvas.height / canvas.clientHeight;
-            stateRef.current = handleToolAction(stateRef.current, wx * scaleX, wy * scaleY);
-            setDs({ ...stateRef.current });
-          }}
-          className="wb gf"
-          style={{
-            position: "absolute",
-            bottom: 52,
-            right: 8,
-            zIndex: 1300,
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            background: ds.player.tool
-              ? "linear-gradient(135deg, #FFD700 0%, #C8A020 100%)"
-              : "linear-gradient(135deg, #CE9E64 0%, #8D5A32 100%)",
-            border: ds.player.tool ? "2px solid #FFF" : "2px solid #5C4033",
-            boxShadow: ds.player.tool
-              ? "0 3px 0 #8d6e15, 0 0 10px rgba(255,215,0,0.4)"
-              : "0 3px 0 #3a2212",
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            fontSize: 5,
-            color: ds.player.tool ? "#3E2723" : "#FFF5E0",
-            touchAction: "manipulation",
-            gap: 1,
-          }}
-        >
-          {ds.player.tool ? (
-            <>
-              <img
-                src={(() => {
-                  const TOOLS_MAP: Record<string, string> = {
-                    sickle: "/celurit_1774349990712.png", axe: "/kapak_1_1774349990715.png",
-                    "axe-large": "/kapak_1774349990716.png", water: "/teko_siram.png",
-                    "wheat-seed": "/wheat.png", "tomato-seed": "/tomato.png",
-                    "carrot-seed": "/carrot.png", "pumpkin-seed": "/pumpkin.png",
-                  };
-                  return TOOLS_MAP[ds.player.tool as string] || "";
-                })()}
-                alt="tool"
-                style={{ width: 20, height: 20, objectFit: "contain", imageRendering: "pixelated" }}
-              />
-              <span style={{ fontSize: 4 }}>USE</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 7 }}>ACT</span>
-          )}
-        </button>
       )}
 
       {/* â”€â”€ LEVEL UP POPUP â”€â”€ */}

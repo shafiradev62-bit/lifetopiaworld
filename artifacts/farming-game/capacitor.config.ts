@@ -4,10 +4,10 @@ const config: CapacitorConfig = {
   appId: 'com.lifetopia.pixelfarm',
   appName: 'LifetopiaWorld',
   webDir: 'dist',
-  bundledWebRuntime: false,
   android: {
     backgroundColor: "#000000",
     allowMixedContent: true,
+    webContentsDebuggingEnabled: false,
   },
   plugins: {
     SplashScreen: {
