@@ -211,8 +211,8 @@ export function createInitialState(): GameState {
       biting: false,
       biteTimer: 0,
     },
-    zoom: 1.8,
-    targetZoom: 1.8,
+    zoom: 1.5,
+    targetZoom: 1.5,
     cameraX: 0,
     cameraY: 0,
     keys: new Set(),
@@ -433,6 +433,10 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
     vfxParticles: [...state.vfxParticles],
     damageNumbers: [...state.damageNumbers],
   };
+  // [DEBUG] Log player state at frame start — critical for tracking character disappear
+  if (s.player.actionTimer > 0) {
+    console.log(`[updateGame] IN action=${s.player.action} timer=${Math.round(s.player.actionTimer)} player.x=${Math.round(s.player.x)} player.y=${Math.round(s.player.y)}`);
+  }
   s.time += dt;
   s.shake = Math.max(0, (s.shake || 0) * 0.78);
   if (s.plotJuice && s.time > s.plotJuice.until) s.plotJuice = null;
@@ -616,8 +620,13 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
 }
 
 function executePlotAction(s: GameState, plotId: string, tool: string) {
+  // [DEBUG] Log every plot action execution for Capacitor Inspect
+  console.log(`[executePlotAction] plotId=${plotId} tool=${tool} player.x=${Math.round(s.player.x)} player.y=${Math.round(s.player.y)}`);
   const plotIdx = s.farmPlots.findIndex((p) => p.id === plotId);
-  if (plotIdx === -1) return s;
+  if (plotIdx === -1) {
+    console.warn(`[executePlotAction] plot not found: ${plotId}`);
+    return s;
+  }
 
   const gate = validateFarmAction(s, plotId, tool);
   if (!gate.ok) {
@@ -658,6 +667,9 @@ function executePlotAction(s: GameState, plotId: string, tool: string) {
 function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: number, cy: number): GameState {
   const plot = s.farmPlots[plotIdx];
 
+  // [DEBUG] Plant/Wallet flow: log every step for Capacitor Inspect
+  console.log(`[performPlotAction] START tool=${tool} plotIdx=${plotIdx} player.x=${Math.round(s.player.x)} player.y=${Math.round(s.player.y)} actionTimer=${s.player.actionTimer} wallet=${s.player.walletAddress?.slice(0,8) ?? "none"}`);
+
   // Subtle character feedback VFX — small sparkle burst on player when farming
   for (let i = 0; i < 4; i++) {
     spawnVFX(s, s.player.x + (Math.random() - 0.5) * 16, s.player.y - 14 + (Math.random() - 0.5) * 10, "sparkle");
@@ -679,12 +691,13 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       plot.fertilized = false;
       s.notification = { text: "SOIL RESET!", life: 85 };
     }
-    
+
     s.player.action = tool as any;
     s.player.actionTimer = 25;
     attachFarmingEngine(s, plot, tool);
     spawnVFX(s, cx, cy, "dust");
     AudioManager.playSFX("axe");
+    console.log(`[performPlotAction] AXE done action=${s.player.action} actionTimer=${s.player.actionTimer}`);
     s.farmPlots[plotIdx] = plot;
     return s;
   }
@@ -716,9 +729,13 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
 
       const wallet = s.player.walletAddress;
       if (wallet) {
+        // [DEBUG] Non-blocking wallet sync — wrapped in try-catch to never crash game loop
         import("./questManager").then(qm => {
           qm.updateSupabaseGold(wallet, s.player.gold);
           qm.updateInventory(wallet, nextInventory);
+          console.log(`[performPlotAction] questManager sync OK gold=${s.player.gold}`);
+        }).catch(err => {
+          console.warn(`[performPlotAction] questManager sync FAILED:`, err?.message);
         });
       }
 
@@ -728,12 +745,19 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       spawnVFX(s, cx, cy - 20, "coin");
       spawnVFX(s, cx, cy, "flash");
       spawnText(s, cx, cy - 56, `+${gold} GOLD`, "#FFD700", -2.4);
-      
+
       bumpQuestProgress(s, "harvest");
       addEarnQuestProgress(s, gold);
       if (wallet) {
-        import("./questManager").then(qm => qm.checkQuestEligibility(s, wallet));
+        // [DEBUG] Non-blocking quest check — safe fire-and-forget
+        import("./questManager").then(qm => {
+          qm.checkQuestEligibility(s, wallet);
+          console.log(`[performPlotAction] checkQuestEligibility OK`);
+        }).catch(err => {
+          console.warn(`[performPlotAction] checkQuestEligibility FAILED:`, err?.message);
+        });
       }
+      console.log(`[performPlotAction] HARVEST done action=${s.player.action} actionTimer=${s.player.actionTimer}`);
 
       s.plotJuice = { plotId: plot.id, until: s.time + 380 };
       AudioManager.playSFX("harvest");
@@ -786,6 +810,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
   else if (tool === "water") {
     if (!plot.tilled) {
       s.notification = { text: "TILL SOIL FIRST!", life: 80 };
+      console.log(`[performPlotAction] WATER blocked — soil not tilled`);
     } else if (plot.watered) {
       s.notification = { text: "ALREADY WATERED!", life: 70 };
     } else {
@@ -798,9 +823,10 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       for (let i = 0; i < 15; i++)
         spawnVFX(s, cx + (Math.random() - 0.5) * 45, cy + (Math.random() - 0.5) * 35, "water");
       s.notification = { text: "WATERED!", life: 80 };
+      console.log(`[performPlotAction] WATER done action=${s.player.action} actionTimer=${s.player.actionTimer} crop=${plot.crop?.type ?? "none"}`);
     }
-  } 
-  
+  }
+
   // FERTILIZER: Works on any tilled plot
   else if (tool === "fertilizer") {
     if (!plot.tilled) {
@@ -817,20 +843,22 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       AudioManager.playSFX("fertilize");
       s.shake = 5;
       s.notification = { text: "GROWTH BOOSTED!", life: 80 };
+      console.log(`[performPlotAction] FERTILIZER done action=${s.player.action} actionTimer=${s.player.actionTimer}`);
     }
-  } 
-  
+  }
+
   // SEEDS: Plant on empty tilled soil
   else if (tool.endsWith("-seed")) {
     let cropType: CropType = "wheat";
     if (tool.includes("tomato")) cropType = "tomato";
     else if (tool.includes("carrot")) cropType = "carrot";
     else if (tool.includes("pumpkin")) cropType = "pumpkin";
-    
+
     const cd = s.seedCooldowns[tool] || 0;
     if (cd > 0) {
       const wait = Math.ceil(cd / 1000);
       s.notification = { text: `REFILLING SEEDS... ${wait}s`, life: 75 };
+      console.log(`[performPlotAction] SEED blocked — cooldown ${wait}s`);
       return s;
     }
 
@@ -839,21 +867,25 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
     if (!plot.tilled) {
       s.notification = { text: "TILL SOIL FIRST! SELECT HOE [1] THEN CLICK PLOT", life: 160 };
       s.farmPlots[plotIdx] = plot;
+      console.log(`[performPlotAction] SEED blocked — soil not tilled`);
       return s;
     } else if (plot.crop) {
       if (plot.crop.dead) s.notification = { text: "CLEAR DEAD CROP FIRST!", life: 90 };
       else if (plot.crop.ready) s.notification = { text: "HARVEST FIRST!", life: 90 };
       else s.notification = { text: "PLOT OCCUPIED!", life: 90 };
       s.farmPlots[plotIdx] = plot;
+      console.log(`[performPlotAction] SEED blocked — plot occupied/dead/ready`);
       return s;
     } else if (count <= 0) {
       s.notification = { text: `NO ${cropType.toUpperCase()} SEEDS!`, life: 90 };
       s.farmPlots[plotIdx] = plot;
+      console.log(`[performPlotAction] SEED blocked — no seeds (${tool})`);
       return s;
     } else if (!isCropPlantingUnlocked(cropType, s.player.level, s.farmBalancePreset)) {
       const need = seedUnlockLevel(cropType, s.farmBalancePreset);
       s.notification = { text: `LOCKED — LEVEL ${need}+`, life: 90 };
       s.farmPlots[plotIdx] = plot;
+      console.log(`[performPlotAction] SEED blocked — level too low (need ${need})`);
       return s;
     } else {
       const nowMs = getServerTime();
@@ -865,17 +897,18 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       attachFarmingEngine(s, plot, tool);
       AudioManager.playSFX("plant");
       s.player.inventory = { ...s.player.inventory, [tool]: count - 1 };
-      
+
       const cdMap: Record<string, number> = { "wheat-seed": 50, "tomato-seed": 50, "carrot-seed": 50, "pumpkin-seed": 50 };
       s.seedCooldowns[tool] = cdMap[tool] || 50;
 
       // Unity-style plant burst
       for (let i = 0; i < 8; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
       for (let i = 0; i < 4; i++) spawnVFX(s, cx + (Math.random()-0.5)*20, cy + (Math.random()-0.5)*15, "sparkle");
-      spawnVFX(s, cx, cy, "flash");
+      spawnVFX(s, cx, cx, "flash");
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
       bumpQuestProgress(s, "plant");
       s.plotJuice = { plotId: plot.id, until: s.time + 360 };
+      console.log(`[performPlotAction] PLANT ${cropType} done action=${s.player.action} actionTimer=${s.player.actionTimer} plotId=${plot.id}`);
     }
   }
 
@@ -1106,51 +1139,38 @@ function handleMovement(s: GameState, _dt: number, stateRef?: MutableRefObject<G
 }
 
 function updateCamera(s: GameState) {
-  // Use actual viewport size so camera covers full screen (no black bars)
+  // Camera follows player, ALWAYS COVER VIEWPORT (no green edges)
   const cw = s.viewportW || 1280;
   const ch = s.viewportH || 720;
   const { w, h } = MAP_SIZES[s.currentMap];
 
-  // Enforce minimum zoom so map always covers full viewport (no empty edges)
+  // Minimum zoom to cover entire screen (no green bars)
   const coverZoom = Math.max(cw / w, ch / h);
-  // On home map: ensure full farm grid (y=259 to y=395) fits in viewport.
-  // At minZoom=1.8 with small mobile viewport (e.g. 667px), visible=370px clips the bottom row.
-  // Use the minimum zoom needed to show the whole farm, capped at 1.8 for visual quality.
-  const farmMinZoom = ch / (FARM_GRID.startY + FARM_GRID.rows * FARM_GRID.cellH);
-  const minZoom = s.currentMap === "home"
-    ? Math.min(1.8, Math.max(1.0, farmMinZoom))
-    : coverZoom * 1.25;
-  if (s.zoom < minZoom) s.zoom = minZoom;
-  if (s.targetZoom < minZoom) s.targetZoom = minZoom;
-  
-  // Camera follows player with SUPER SMOOTH interpolation
+  s.zoom = Math.max(coverZoom, 1.0);
+  s.targetZoom = s.zoom;
+
+  // Camera follows player position with smooth lerp
   let px = s.player.x;
   let py = s.player.y;
+
+  // Calculate target camera position
+  let targetX = px * s.zoom - cw / 2;
+  let targetY = py * s.zoom - ch / 2;
   
-  // During action animation, keep camera locked on character with slight offset
-  if (s.player.actionTimer > 0) {
-    // Slight offset based on facing direction for better visibility
-    const offset = 20;
-    if (s.player.facing === "left") px -= offset;
-    else if (s.player.facing === "right") px += offset;
-    else if (s.player.facing === "up") py -= offset;
-    else if (s.player.facing === "down") py += offset;
-  }
-  
-  const tx = px * s.zoom - cw / 2;
-  const ty = py * s.zoom - ch / 2;
+  // Clamp to map bounds
   const maxCX = Math.max(0, w * s.zoom - cw);
   const maxCY = Math.max(0, h * s.zoom - ch);
-  const targetX = Math.max(0, Math.min(maxCX, tx));
-  const targetY = Math.max(0, Math.min(maxCY, ty));
+  targetX = Math.max(0, Math.min(maxCX, targetX));
+  targetY = Math.max(0, Math.min(maxCY, targetY));
   
-  // SUPER SMOOTH camera follow (increased from 0.28 to 0.35)
-  s.cameraX = s.cameraX + (targetX - s.cameraX) * 0.35;
-  s.cameraY = s.cameraY + (targetY - s.cameraY) * 0.35;
+  // Smooth follow with lerp
+  s.cameraX = s.cameraX + (targetX - s.cameraX) * 0.25;
+  s.cameraY = s.cameraY + (targetY - s.cameraY) * 0.25;
 }
 
 function updateZoom(s: GameState) {
-  s.zoom += (s.targetZoom - s.zoom) * 0.25;
+  // Zoom is set dynamically in updateCamera to cover the viewport
+  // No manual zoom changes allowed - game always fills screen
 }
 
 function updateCrops(s: GameState) {
@@ -1394,6 +1414,9 @@ export function handleToolAction(
   mouseX?: number,
   mouseY?: number,
 ): GameState {
+  // [DEBUG] Log every tool action for Capacitor Inspect
+  console.log(`[handleToolAction] tool=${s.player.tool ?? "null"} map=${s.currentMap} mouseX=${mouseX ?? "none"} mouseY=${mouseY ?? "none"} actionTimer=${s.player.actionTimer}`);
+
   let ns = {
     ...s,
     player: { ...s.player },
@@ -1425,16 +1448,8 @@ export function handleToolAction(
     tx = snapped.tx;
     ty = snapped.ty;
 
-    // Set player movement target — character will smoothly walk to clicked position
     ns.player.targetX = tx;
     ns.player.targetY = ty;
-    
-    // ZOOM IN ONCE at the VERY FIRST click - then STAY zoomed forever!
-    if (!ns._hasZoomedInThisSession) {
-      ns._hasZoomedInThisSession = true;
-      ns.targetZoom = 3.0; // Zoom in ONCE, then stay here forever!
-    }
-    // After this: camera just follows character while staying zoomed in
   }
 
   if (ns.currentMap === "suburban" && mouseX !== undefined && mouseY !== undefined) {
@@ -1575,7 +1590,6 @@ export function handleToolAction(
       ns.bubbleText = plotGate.reason;
       ns.player.targetX = null;
       ns.player.targetY = null;
-      ns.targetZoom = 1.8; // Reset zoom on cancel
       return ns;
     }
     spawnVFX(ns, ns.player.x, ns.player.y - 15, "slash", ns.player.facing);

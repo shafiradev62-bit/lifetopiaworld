@@ -190,7 +190,80 @@ export function renderGame(
     drawGardenPlayersHud(ctx, state, W, H);
   }
 
-  // No vignette — keep background crisp
+// ═══════════════════════════════════════════════════════════════
+  // ATMOSPHERE: Weather particles (drawn in screen space)
+  // ═══════════════════════════════════════════════════════════════
+  drawWeatherParticles(ctx, state, W, H);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // MAP TRANSITION: Iris reveal effect
+  // ═══════════════════════════════════════════════════════════════
+  drawMapTransition(ctx, state, W, H);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAP TRANSITION SYSTEM
+// ═══════════════════════════════════════════════════════════════
+let transitionProgress = 0;
+let transitionType: "none" | "iris-out" | "iris-in" = "none";
+let transitionCallback: (() => void) | null = null;
+
+export function startMapTransition(callback: () => void) {
+  transitionType = "iris-out";
+  transitionProgress = 0;
+  transitionCallback = callback;
+}
+
+export function isInTransition(): boolean {
+  return transitionType !== "none";
+}
+
+function drawMapTransition(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
+  if (transitionType === "none") return;
+  
+  transitionProgress += 0.035;
+  
+  const cx = W / 2;
+  const cy = H / 2;
+  const maxR = Math.sqrt(cx * cx + cy * cy);
+  
+  ctx.save();
+  ctx.fillStyle = "#000";
+  
+  if (transitionType === "iris-out") {
+    const progress = Math.min(1, transitionProgress);
+    const r = maxR * easeOutCubic(progress);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    
+    if (progress >= 1) {
+      transitionType = "iris-in";
+      transitionProgress = 0;
+      if (transitionCallback) transitionCallback();
+    }
+  } else if (transitionType === "iris-in") {
+    const progress = Math.min(1, transitionProgress);
+    const r = maxR * easeInCubic(progress);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    
+    if (progress >= 1) {
+      transitionType = "none";
+      transitionCallback = null;
+    }
+  }
+  
+  ctx.restore();
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function easeInCubic(t: number): number {
+  return t * t * t;
 }
 
 function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
@@ -1144,10 +1217,30 @@ function drawNPCs(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.fillStyle = "#FFCC80";
     ctx.beginPath(); ctx.arc(0, -34, 9, 0, Math.PI * 2); ctx.fill();
 
-    // Eyes
-    ctx.fillStyle = "#3E2723";
-    ctx.fillRect(-4, -36, 2, 2);
-    ctx.fillRect(2, -36, 2, 2);
+    // Eyes with blink animation
+    const blinkCycle = (state.time / 4000 + i) % 1;
+    const isBlinking = blinkCycle > 0.95;
+    const lookOffset = Math.sin(state.time / 2000 + i * 2) * 1;
+    
+    if (isBlinking) {
+      // Closed eyes (blink)
+      ctx.strokeStyle = "#3E2723";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-5, -36); ctx.lineTo(-3, -36);
+      ctx.moveTo(3, -36); ctx.lineTo(5, -36);
+      ctx.stroke();
+    } else {
+      // Open eyes with look direction
+      ctx.fillStyle = "#3E2723";
+      ctx.fillRect(-4 + lookOffset * 0.3, -36, 2, 2);
+      ctx.fillRect(2 + lookOffset * 0.3, -36, 2, 2);
+      
+      // Eye shine
+      ctx.fillStyle = "#FFF";
+      ctx.fillRect(-3 + lookOffset * 0.3, -36, 1, 1);
+      ctx.fillRect(3 + lookOffset * 0.3, -36, 1, 1);
+    }
 
     // Hat
     ctx.fillStyle = "#5D4037";
@@ -1411,8 +1504,24 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
       imgs["/chibi_1774349990714.png"];
 
   const walkBob = 0;
-  const breathing = 0; // removed — was causing scale drift
-  const squashStretch = 1.0; // fixed — no squash/stretch to prevent shrink bug
+  const breathing = 0;
+  
+  // ═══════════════════════════════════════════════════════════════
+  // SQUASH & STRETCH: Dynamic animation based on movement
+  // ═══════════════════════════════════════════════════════════════
+  let squashStretch = 1.0;
+  const movePhase = (state.time / 100) % (Math.PI * 2);
+  
+  if (isWalking) {
+    // Stretch in movement direction
+    squashStretch = 1.0 + Math.sin(movePhase) * 0.08;
+  } else if (actionTimer > 0) {
+    // Boing effect when using tool
+    squashStretch = 1.0 + Math.sin(actionTimer * 0.5) * 0.12;
+  } else {
+    // Subtle breathing when idle
+    squashStretch = 1.0 + Math.sin(state.time / 800) * 0.02;
+  }
 
   ctx.save();
   ctx.translate(x, y);
@@ -1436,8 +1545,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
   if (sprite && sprite.complete && sprite.naturalWidth > 0) {
     const targetH = 38;
     const ratio = sprite.naturalWidth / sprite.naturalHeight;
-    /** Hard-locked display scale — no squash/stretch on the player */
-    const PLAYER_RENDER_SCALE = 1;
+    // Apply squash/stretch effect
+    const PLAYER_RENDER_SCALE = squashStretch;
     const drawW = targetH * ratio * PLAYER_RENDER_SCALE;
     const drawH = targetH;
     const ox = -drawW / 2;
@@ -2067,5 +2176,68 @@ function drawSuburbanSpots(ctx: CanvasRenderingContext2D, state: GameState) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#FFD700";
   ctx.fillText("BETA AREA", 520, 300);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ATMOSPHERE WEATHER PARTICLES
+// ═══════════════════════════════════════════════════════════════
+const weatherParticles: Array<{x: number; y: number; vx: number; vy: number; size: number; alpha: number; type: string}> = [];
+
+function drawWeatherParticles(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
+  const { cameraX, cameraY, currentMap } = state;
+  const now = state.time;
+  
+  // Only show particles in garden/suburban/home
+  if (currentMap !== "garden" && currentMap !== "home" && currentMap !== "suburban") return;
+  
+  // Spawn new particles occasionally
+  if (weatherParticles.length < 40 && Math.random() < 0.1) {
+    weatherParticles.push({
+      x: Math.random() * W + cameraX,
+      y: -10,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: 0.4 + Math.random() * 0.6,
+      size: 2 + Math.random() * 2,
+      alpha: 0.3 + Math.random() * 0.4,
+      type: Math.random() > 0.7 ? "petal" : "dust"
+    });
+  }
+  
+  ctx.save();
+  
+  // Update and draw particles
+  for (let i = weatherParticles.length - 1; i >= 0; i--) {
+    const p = weatherParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    
+    // Screen-relative position
+    const sx = p.x - cameraX;
+    const sy = p.y - cameraY;
+    
+    // Remove if off screen
+    if (sy > H + 20 || sx < -20 || sx > W + 20) {
+      weatherParticles.splice(i, 1);
+      continue;
+    }
+    
+    ctx.globalAlpha = p.alpha;
+    
+    if (p.type === "petal") {
+      // Falling petal with rotation
+      ctx.fillStyle = "#FFB6C1";
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, p.size, p.size * 0.6, now / 500 + p.x * 0.01, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Dust mote
+      ctx.fillStyle = "#FFF8DC";
+      ctx.beginPath();
+      ctx.arc(sx, sy, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
   ctx.restore();
 }

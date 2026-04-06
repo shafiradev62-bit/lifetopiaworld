@@ -28,7 +28,7 @@ import {
 } from "../game/walletHandshake";
 import {
   isMobilePlatform, openWalletDeepLink, detectWalletEnvironment, detectMobileWallets,
-  setupWalletDeepLinkHandler,
+  setupWalletDeepLinkHandler, setupVisibilityRestart,
   getTouchQuadrant, quadrantToKeys,
 } from "../game/MobileController";
 import { solanaWallet } from "../game/Web3Config";
@@ -177,6 +177,8 @@ export default function FarmingGame() {
   const [mobileMetamaskInstalled, setMobileMetamaskInstalled] = useState(false);
   const [mobileTrustInstalled, setMobileTrustInstalled] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  // [DEBUG] Version counter — incrementing forces RAF useEffect to re-run after deep link resume
+  const [walletDeeplinkVersion, setWalletDeeplinkVersion] = useState(0);
   const initialLoadCompleteRef = useRef(false);
   const cloudSaveBusy = useRef(false);
   const walletConnectedRef = useRef(false);
@@ -463,19 +465,27 @@ export default function FarmingGame() {
         const url = new URL(data.url);
         const addr = url.searchParams.get("addr") || url.searchParams.get("public_key") || url.searchParams.get("pk");
         const type = url.searchParams.get("type");
-        if (addr) handleWalletCallback(addr, type ?? undefined);
+        console.log(`[DeepLink] appUrlOpen: ${data.url} addr=${addr}`);
+        if (addr) {
+          handleWalletCallback(addr, type ?? undefined);
+          // [DEBUG] Force RAF useEffect to re-run after app returns from wallet
+          setWalletDeeplinkVersion(v => v + 1);
+        }
       } catch (e) { /* ignore */ }
     });
-    
+
     window.addEventListener('wallet-connected', ((e: CustomEvent) => {
+      console.log(`[DeepLink] wallet-connected event: addr=${e.detail.address}`);
       handleWalletCallback(e.detail.address, e.detail.type);
+      // [DEBUG] Force RAF useEffect to re-run after app returns from wallet
+      setWalletDeeplinkVersion(v => v + 1);
     }) as any);
-    
+
     const url = new URL(window.location.href);
     const initAddr = url.searchParams.get("addr") || url.searchParams.get("public_key") || url.searchParams.get("pk");
     const initType = url.searchParams.get("type");
     if (initAddr) handleWalletCallback(initAddr, initType ?? undefined);
-    
+
     return () => { sub.then(s => s.remove()); };
   }, []);
 
@@ -1082,10 +1092,12 @@ export default function FarmingGame() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         renderGame(ctx, stateRef.current, canvas.width, canvas.height);
       } catch (err) {
-        console.error("[GameLoop] renderGame crashed:", err);
+        console.error("[GameLoop] renderGame CRASHED:", err);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#1a1a2e";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // [DEBUG] Log player state when render crashes for Capacitor Inspect
+        console.warn(`[GameLoop] Player state: x=${Math.round(stateRef.current.player.x)} y=${Math.round(stateRef.current.player.y)} action=${stateRef.current.player.action} actionTimer=${stateRef.current.player.actionTimer} map=${stateRef.current.currentMap} zoom=${stateRef.current.zoom}`);
       }
 
       if (stateRef.current.activePanel !== activePanel) setActivePanel(stateRef.current.activePanel);
@@ -1096,11 +1108,21 @@ export default function FarmingGame() {
       animRef.current = requestAnimationFrame(loop);
     };
     animRef.current = requestAnimationFrame(loop);
+
+    // [DEBUG] Visibility restart guard — ensures RAF loop restarts after app resumes from wallet deep link
+    const cleanupVisibility = setupVisibilityRestart(() => {
+      console.log(`[RAF] Visibility restart called`);
+      if (!animRef.current) {
+        animRef.current = requestAnimationFrame(loop);
+      }
+    });
+
     return () => {
       cancelAnimationFrame(animRef.current);
       window.removeEventListener("resize", resizeCanvas);
+      cleanupVisibility();
     };
-  }, [loaded, splashDone, introTutorialDone]);
+  }, [loaded, splashDone, introTutorialDone, walletDeeplinkVersion]);
 
   // â”€â”€ Tool selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectTool = (toolId: string) => {
@@ -1172,7 +1194,7 @@ export default function FarmingGame() {
   };
 
   const onWheel = (e: React.WheelEvent) => {
-    stateRef.current.targetZoom = Math.max(0.8, Math.min(3, stateRef.current.targetZoom + (e.deltaY > 0 ? -0.2 : 0.2)));
+    // Disable wheel zoom - no zoom changes allowed
     e.preventDefault();
   };
 
@@ -1374,32 +1396,49 @@ export default function FarmingGame() {
           if (!introTutorialDone || activePanel || stateRef.current.demoMode || showWorldMap) return;
           const canvas = canvasRef.current;
           if (!canvas) return;
-          const t = e.touches[0];
-          if (!t) return;
-          if (mobilePanRef.current !== null) return;
+          
+          // One finger tap - check if it's a quick tap for movement
+          if (e.touches.length === 1) {
+            const t = e.touches[0];
+            if (!t) return;
+            if (mobilePanRef.current !== null) return;
 
-          const rect = canvas.getBoundingClientRect();
-          const dir = getTouchQuadrant(
-            t.clientX - rect.left,
-            t.clientY - rect.top,
-            rect.width,
-            rect.height,
-          );
-          mobilePanRef.current = {
-            id: t.identifier,
-            sx: t.clientX,
-            sy: t.clientY,
-            t0: Date.now(),
-            maxD: 0,
-            activeDir: dir,
-          };
-          if (dir) {
-            quadrantToKeys(dir).forEach((k) => stateRef.current.keys.add(k));
+            const rect = canvas.getBoundingClientRect();
+            const dir = getTouchQuadrant(
+              t.clientX - rect.left,
+              t.clientY - rect.top,
+              rect.width,
+              rect.height,
+            );
+            mobilePanRef.current = {
+              id: t.identifier,
+              sx: t.clientX,
+              sy: t.clientY,
+              t0: Date.now(),
+              maxD: 0,
+              activeDir: dir,
+            };
+            // Only add quadrant keys for swipe movement, not tap
+            if (dir) {
+              quadrantToKeys(dir).forEach((k) => stateRef.current.keys.add(k));
+            }
+          }
+          // Two finger touch - start camera pan
+          else if (e.touches.length === 2) {
+            e.preventDefault();
           }
           e.stopPropagation();
         }}
         onTouchMove={(e) => {
           if (!isMobile || !mobilePanRef.current) return;
+          
+          // Two finger drag - camera pan
+          if (e.touches.length === 2) {
+            e.preventDefault();
+            return;
+          }
+          
+          // One finger movement
           const m = mobilePanRef.current;
           let t: React.Touch | null = null;
           for (let i = 0; i < e.touches.length; i++) {
@@ -1412,18 +1451,22 @@ export default function FarmingGame() {
           const canvas = canvasRef.current;
           if (!canvas) return;
           m.maxD = Math.max(m.maxD, Math.hypot(t.clientX - m.sx, t.clientY - m.sy));
-          const rect = canvas.getBoundingClientRect();
-          const newDir = getTouchQuadrant(
-            t.clientX - rect.left,
-            t.clientY - rect.top,
-            rect.width,
-            rect.height,
-          );
-          if (newDir !== m.activeDir) {
-            ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
-            m.activeDir = newDir;
-            if (newDir) {
-              quadrantToKeys(newDir).forEach((k) => stateRef.current.keys.add(k));
+          
+          // Only update quadrant if movement is significant (>30px from start)
+          if (m.maxD > 30) {
+            const rect = canvas.getBoundingClientRect();
+            const newDir = getTouchQuadrant(
+              t.clientX - rect.left,
+              t.clientY - rect.top,
+              rect.width,
+              rect.height,
+            );
+            if (newDir !== m.activeDir) {
+              ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
+              m.activeDir = newDir;
+              if (newDir) {
+                quadrantToKeys(newDir).forEach((k) => stateRef.current.keys.add(k));
+              }
             }
           }
           e.preventDefault();
@@ -1446,10 +1489,8 @@ export default function FarmingGame() {
           ["arrowup", "arrowdown", "arrowleft", "arrowright"].forEach((k) => stateRef.current.keys.delete(k));
 
           const dur = Date.now() - m.t0;
-          const tap =
-            dur < 380 &&
-            m.maxD < 38 &&
-            !(m.activeDir !== null && dur > 240);
+          // Quick tap with small movement = tap to move/act
+          const tap = dur < 300 && m.maxD < 25;
 
           if (tap && introTutorialDone && !activePanel && !stateRef.current.demoMode && !showWorldMap) {
             const canvas = canvasRef.current;

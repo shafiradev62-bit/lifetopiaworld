@@ -68,70 +68,113 @@ export function resolveWalletBrowseUrl(override?: string): string | null {
   return null;
 }
 
-/** Open wallet app to browse this dapp. Returns false if no valid HTTPS URL (caller should show a hint). */
+/** Open wallet app via native deep link. */
 export function openWalletDeepLink(walletType: "phantom" | "solflare" | "backpack" | "metamask" | "trust", dappUrl?: string): boolean {
-  const url = resolveWalletBrowseUrl(dappUrl);
-  if (!url) {
-    console.warn("[MobileController] No HTTPS dapp URL — set VITE_WALLET_DAPP_URL or deploy to https://");
-    return false;
-  }
-  const encoded = encodeURIComponent(url);
-  const host = url.replace(/^https?:\/\//, "");
+  const httpsUrl = resolveWalletBrowseUrl(dappUrl);
+  const deeplink = buildWalletDeeplink(walletType, httpsUrl);
 
-  console.log(`[MobileController] Attempting deep link for ${walletType} to ${url}`);
+  console.log(`[MobileController] ${walletType} deep link: ${deeplink}`);
+  console.log(`[MobileController] dappUrl resolved: ${httpsUrl ?? "null (using fallback)"}`);
 
-  // Try using Capacitor App plugin for native app detection and opening
-  const w = window as any;
-  const capacitorApp = w.Capacitor?.Plugins?.App;
-  const isNative = !!w.Capacitor?.isNativePlatform?.();
+  // Set a flag so on return we know what wallet to look for
+  sessionStorage.setItem("pending_wallet_type", walletType);
+  sessionStorage.setItem("_leaving_for_wallet", String(Date.now()));
 
-  if (capacitorApp && isNative) {
-    const SCHEMES: Record<string, string> = {
-      phantom: "phantom:",
-      solflare: "solflare:",
-      backpack: "backpack:",
-      metamask: "metamask:",
-      trust: "trust:",
-    };
-    const scheme = SCHEMES[walletType];
-    if (scheme) {
-      capacitorApp.canOpenUrl({ url: scheme }).then((res: any) => {
-        if (res.value) {
-          // If we have a custom scheme for OUR app, we could tell the wallet to return here.
-          // For now, let's use the most reliable "browse" URL which opens the wallet's internal browser.
-          const fallback = getWebFallback(walletType, encoded, host);
-          console.log("[MobileController] App installed, opening:", fallback);
-          window.location.href = fallback;
-        } else {
-          const fallback = getWebFallback(walletType, encoded, host);
-          console.log("[MobileController] App NOT installed, opening fallback:", fallback);
-          window.location.href = fallback;
-        }
-      }).catch(() => {
-        window.location.href = getWebFallback(walletType, encoded, host);
-      });
+  // Check if we're in a native Capacitor app
+  const isNative = !!(window as any).Capacitor?.isNativePlatform?.();
+  
+  if (!isNative) {
+    // Mobile web - open in browser-based wallet instead of deep link
+    // This works on mobile web with Phantom/Solflare browser injection
+    if (walletType === "phantom" && httpsUrl) {
+      window.location.href = `https://phantom.app/connect?app_url=${encodeURIComponent(httpsUrl)}&redirect_link=${encodeURIComponent(window.location.origin + '/?callback=phantom')}`;
       return true;
     }
+    if (walletType === "solflare" && httpsUrl) {
+      window.location.href = `https://solflare.com/connect?url=${encodeURIComponent(httpsUrl)}`;
+      return true;
+    }
+    // Try generic approach for other wallets
+    window.location.href = deeplink;
+    return true;
   }
 
-  window.location.href = getWebFallback(walletType, encoded, host);
+  window.location.href = deeplink;
   return true;
 }
 
-function getWebFallback(walletType: "phantom" | "solflare" | "backpack" | "metamask" | "trust", encoded: string, host: string): string {
+/** Restart the game RAF loop after app returns from background/wallet deep link. */
+/** Call this from FarmingGame.tsx useEffect to ensure game loop never stops permanently. */
+export function setupVisibilityRestart(onRestart: () => void): () => void {
+  let suspended = false;
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      console.log(`[Visibility] App resumed — RAF will auto-restart via React useEffect`);
+      // The React useEffect dependency array (loaded, splashDone, introTutorialDone)
+      // will naturally restart the loop when component re-renders after resume.
+      // We just need to ensure it doesn't stay cancelled.
+      if (suspended) {
+        suspended = false;
+        console.log(`[Visibility] Loop restart triggered after wallet resume`);
+        onRestart();
+      }
+    } else {
+      console.log(`[Visibility] App backgrounded — RAF may pause`);
+      suspended = true;
+    }
+  };
+
+  const handleResume = () => {
+    console.log(`[MobileController] Capacitor resume event — game loop active`);
+    onRestart();
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("resume" as any, handleResume);
+  console.log(`[MobileController] Visibility restart guard active`);
+
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("resume" as any, handleResume);
+  };
+}
+
+/** Build the correct native deep link URL for each wallet */
+function buildWalletDeeplink(walletType: string, dappHttpsUrl: string | null): string {
   if (walletType === "phantom") {
-    // Phantom Universal Link - Browse mode
-    return `https://phantom.app/ul/browse/${encoded}?ref=${encoded}`;
-  } else if (walletType === "solflare") {
-    return `https://solflare.com/ul/browse/${encoded}`;
-  } else if (walletType === "backpack") {
-    return `https://backpack.app/ul/browse/${encoded}`;
-  } else if (walletType === "trust") {
-    return `https://link.trustwallet.com/open_url?url=${encoded}`;
-  } else {
-    // MetaMask Deep Link - dApp browser mode
-    return `https://metamask.app.link/dapp/${host}`;
+    // Native Phantom connect — opens Phantom APP directly
+    // app_url: the dApp URL Phantom should show in its approval screen
+    // redirect_link: where Phantom redirects after user approves/rejects
+    // We use lifetopiaconnect:// custom scheme for our app to catch the callback
+    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
+    return `phantom://v1/connect?app_url=${dapp}&redirect_link=${redirect}`;
   }
+
+  if (walletType === "solflare") {
+    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
+    return `solflare://open?url=${dapp}&redirect=${redirect}`;
+  }
+
+  if (walletType === "backpack") {
+    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
+    return `backpack://transfer?url=${dapp}&redirect=${redirect}`;
+  }
+
+  if (walletType === "trust") {
+    if (dappHttpsUrl) return `https://link.trustwallet.com/open_url?url=${encodeURIComponent(dappHttpsUrl)}`;
+    return "trust:";
+  }
+
+  if (walletType === "metamask") {
+    if (dappHttpsUrl) return `https://metamask.app.link/dapp/${dappHttpsUrl.replace("https://", "")}`;
+    return "metamask:";
+  }
+
+  return `${walletType}:`;
 }
 
 /** Detect wallets on MOBILE via Capacitor App plugin (checks if native wallet app is installed) */
@@ -148,7 +191,6 @@ export async function detectMobileWallets(): Promise<{
     const app = (window as any).Capacitor?.Plugins?.App;
     if (!app) return result;
 
-    // Check each wallet's URL scheme availability
     const schemes = [
       { name: "phantom", scheme: "phantom:" },
       { name: "solflare", scheme: "solflare:" },
@@ -203,31 +245,63 @@ export function detectWalletEnvironment(): {
 
 /** Setup wallet deep link handler for wallet callbacks */
 export function setupWalletDeepLinkHandler() {
-  const handleDeepLink = (event: Event) => {
-    event.preventDefault();
-    const url = new URL(window.location.href);
-    const addr = url.searchParams.get("addr") || url.searchParams.get("public_key") || url.searchParams.get("pk");
-    const type = url.searchParams.get("type");
+  // Handle Capacitor's appUrlOpen event (fires when app is opened via deep link)
+  const handleAppUrlOpen = (data: { url?: string }) => {
+    if (!data?.url) return;
+    console.log("[DeepLink] appUrlOpen:", data.url);
+    const url = new URL(data.url);
+    // Parse address from various wallet callback formats
+    const addr =
+      url.searchParams.get("address") ||
+      url.searchParams.get("pubkey") ||
+      url.searchParams.get("public_key") ||
+      url.searchParams.get("pk") ||
+      url.searchParams.get("wallet") ||
+      url.hostname; // fallback: use host as address
+    const type = url.searchParams.get("type") || "solana";
     if (addr) {
-      console.log('[DeepLink] Received callback with address:', addr);
-      window.dispatchEvent(new CustomEvent('wallet-connected', { 
-        detail: { address: addr, type: type || 'solana' } 
+      console.log("[DeepLink] Parsed wallet address:", addr);
+      window.dispatchEvent(new CustomEvent("wallet-connected", {
+        detail: { address: addr, type },
       }));
-      url.searchParams.delete("addr");
-      url.searchParams.delete("public_key");
-      url.searchParams.delete("pk");
-      url.searchParams.delete("type");
-      window.history.replaceState({}, '', url.toString());
     }
   };
-  
-  if (typeof window !== 'undefined') {
-    window.addEventListener('appUrlOpen', handleDeepLink as any);
-    window.addEventListener('url', handleDeepLink as any);
+
+  // Handle browser-style URL params (?addr=...&pk=...)
+  const handleUrlParams = () => {
     const url = new URL(window.location.href);
-    if (url.searchParams.has("addr") || url.searchParams.has("public_key")) {
-      handleDeepLink(new Event('url'));
+    const addr =
+      url.searchParams.get("address") ||
+      url.searchParams.get("pubkey") ||
+      url.searchParams.get("public_key") ||
+      url.searchParams.get("pk") ||
+      url.searchParams.get("wallet");
+    const type = url.searchParams.get("type") || "solana";
+    if (addr) {
+      console.log("[DeepLink] URL param address:", addr);
+      window.dispatchEvent(new CustomEvent("wallet-connected", {
+        detail: { address: addr, type },
+      }));
+      url.searchParams.delete("address");
+      url.searchParams.delete("pubkey");
+      url.searchParams.delete("public_key");
+      url.searchParams.delete("pk");
+      url.searchParams.delete("wallet");
+      url.searchParams.delete("type");
+      window.history.replaceState({}, "", url.toString());
     }
+  };
+
+  if (typeof window !== "undefined") {
+    // Capacitor deep link
+    (window as any).Capacitor?.Plugins?.App?.addListener?.(
+      "appUrlOpen",
+      handleAppUrlOpen,
+    );
+    // Fallback browser events
+    window.addEventListener("url", handleUrlParams as any);
+    // Check URL params on load
+    handleUrlParams();
   }
-  console.log('[MobileController] Wallet deep link handler initialized');
+  console.log("[MobileController] Wallet deep link handler initialized");
 }
