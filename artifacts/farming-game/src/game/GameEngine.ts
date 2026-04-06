@@ -1147,9 +1147,6 @@ function updateCamera(s: GameState) {
   s.zoom = lockedZoom;
   s.targetZoom = lockedZoom;
 
-  // Console debug for troubleshooting
-  console.log(`[Camera] zoom=${lockedZoom.toFixed(3)} vp=${cw}x${ch} map=${w}x${h} mapType=${s.currentMap}`);
-
   // Camera follows player position with smooth lerp
   let px = s.player.x;
   let py = s.player.y;

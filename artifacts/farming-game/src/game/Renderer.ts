@@ -23,7 +23,6 @@ const imgs: Record<string, HTMLImageElement> = {};
 
 export function loadImg(src: string): Promise<HTMLImageElement> {
   if (imgs[src]) return Promise.resolve(imgs[src]);
-  console.log(`[ImageLoader] Loading: ${src}`);
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -133,12 +132,8 @@ export function renderGame(
   const sx = shakeAmt > 0.5 ? (Math.sin(state.time * 0.3) * shakeAmt * 0.5) : 0;
   const sy = shakeAmt > 0.5 ? (Math.cos(state.time * 0.4) * shakeAmt * 0.5) : 0;
 
-  // Solid fallback fill
-  const edgeColors: Record<MapType, string> = {
-    home: "#4a7c59", city: "#5a5a5a", fishing: "#1a5a3a",
-    garden: "#3a8a3a", suburban: "#90c090",
-  };
-  ctx.fillStyle = edgeColors[state.currentMap];
+  // Clear screen with dark background (NOT map-specific colors)
+  ctx.fillStyle = "#1a1a2e";
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
@@ -568,27 +563,20 @@ function drawBackground(ctx: CanvasRenderingContext2D, state: GameState) {
   // Debug: log image status
   const imgPath = MAP_IMGS[state.currentMap];
   const imgLoaded = img && img.complete && img.naturalWidth > 0;
-  console.log(`[Background] map=${state.currentMap} img=${imgPath} loaded=${imgLoaded} zoom=${state.zoom}`);
 
-  const edgeFill: Record<string, string> = {
-    home: "#4a7c59", city: "#5a5a5a", fishing: "#1a5a3a",
-    garden: "#3a8a3a", suburban: "#90c090",
-  };
-  // Fill padding with solid color
-  ctx.fillStyle = edgeFill[state.currentMap] ?? "#4a7c59";
-  ctx.fillRect(-PAD, -PAD, w + PAD * 2, h + PAD * 2);
+  // Only fill edge area when image is NOT loaded (fallback)
+  if (!imgLoaded) {
+    const edgeFill: Record<string, string> = {
+      home: "#4a7c59", city: "#5a5a5a", fishing: "#1a5a3a",
+      garden: "#3a8a3a", suburban: "#90c090",
+    };
+    ctx.fillStyle = edgeFill[state.currentMap] ?? "#4a7c59";
+    ctx.fillRect(-PAD, -PAD, w + PAD * 2, h + PAD * 2);
+  }
 
   if (img && img.complete && img.naturalWidth > 0) {
     // Draw map at exact world size — no stretch
     ctx.drawImage(img, 0, 0, w, h);
-  } else {
-    // DEBUG: show placeholder text if image not loaded
-    ctx.save();
-    ctx.fillStyle = "#FFF";
-    ctx.font = '20px "Press Start 2P"';
-    ctx.textAlign = "center";
-    ctx.fillText(`LOADING: ${imgPath}`, w/2, h/2);
-    ctx.restore();
   }
 }
 
