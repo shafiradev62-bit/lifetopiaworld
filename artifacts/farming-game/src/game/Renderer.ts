@@ -163,11 +163,13 @@ export function renderGame(
   }
   if (state.currentMap === "suburban") {
     drawSuburbanSpots(ctx, state);
-    drawClouds(ctx, state);
+    // TEMP DISABLE CLOUDS
+    // drawClouds(ctx, state);
   }
-  if (state.currentMap === "home" && state.time < 30000) {
-    drawClouds(ctx, state);
-  }
+  // TEMP DISABLE CLOUDS ON HOME
+  // if (state.currentMap === "home" && state.time < 30000) {
+  //   drawClouds(ctx, state);
+  // }
   drawFootprints(ctx, state);
   drawPlayer(ctx, state);
   if (state.currentMap === "fishing")
