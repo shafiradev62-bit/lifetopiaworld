@@ -1143,10 +1143,14 @@ function updateCamera(s: GameState) {
   const ch = s.viewportH || 720;
   const { w, h } = MAP_SIZES[s.currentMap];
   const coverZoom = Math.max(cw / w, ch / h);
-  const minZoom = Math.max(coverZoom, 1.0);
-  const maxZoom = Math.max(coverZoom, 1.0);
-  s.zoom = Math.min(Math.max(minZoom, 1.0), maxZoom);
-  s.targetZoom = s.zoom;
+  const lockedZoom = Math.max(coverZoom, 1.0);
+  s.zoom = lockedZoom;
+  s.targetZoom = lockedZoom;
+
+  // Debug: log zoom issues
+  if (lockedZoom > 2.0) {
+    console.warn(`[Camera] High zoom detected: ${lockedZoom.toFixed(2)} viewport=${cw}x${ch} map=${w}x${h}`);
+  }
 
   // Camera follows player position with smooth lerp
   let px = s.player.x;

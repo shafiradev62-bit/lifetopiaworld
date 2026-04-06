@@ -1902,7 +1902,7 @@ function drawFarmDebugOverlay(ctx: CanvasRenderingContext2D, state: GameState) {
   const rows = state.farmPlots.slice(0, maxRows);
 
   const panelW = 440;
-  const panelH = 44 + rows.length * rowH;
+  const panelH = 76 + rows.length * rowH;
 
   ctx.save();
   ctx.globalAlpha = 0.94;
@@ -1921,14 +1921,21 @@ function drawFarmDebugOverlay(ctx: CanvasRenderingContext2D, state: GameState) {
   ctx.textBaseline = "top";
   ctx.fillText("FARM DEBUG OVERLAY", panelX + 10, panelY + 8);
 
+  // Camera/Zoom debug info
+  ctx.font = '8px "Press Start 2P", monospace';
+  ctx.fillStyle = "#9CF0A9";
+  const { w, h } = MAP_SIZES[state.currentMap];
+  const debugInfo = `ZOOM:${state.zoom.toFixed(2)} VP:${state.viewportW}x${state.viewportH} MAP:${w}x${h}`;
+  ctx.fillText(debugInfo, panelX + 10, panelY + 22);
+
   ctx.font = '8px "Press Start 2P", monospace';
   ctx.fillStyle = "#EEE1C6";
   const hdr = "ID     T W F  CROP      STAGE READY  PROG";
-  ctx.fillText(hdr, panelX + 10, panelY + 24);
+  ctx.fillText(hdr, panelX + 10, panelY + 38);
 
   const now = state.time;
   rows.forEach((plot, i) => {
-    const y = panelY + 40 + i * rowH;
+    const y = panelY + 52 + i * rowH;
     const crop = plot.crop;
     const cropType = crop
       ? crop.type.toUpperCase().padEnd(8, " ")
