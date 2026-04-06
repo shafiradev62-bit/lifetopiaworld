@@ -1147,10 +1147,8 @@ function updateCamera(s: GameState) {
   s.zoom = lockedZoom;
   s.targetZoom = lockedZoom;
 
-  // Debug: log zoom issues
-  if (lockedZoom > 2.0) {
-    console.warn(`[Camera] High zoom detected: ${lockedZoom.toFixed(2)} viewport=${cw}x${ch} map=${w}x${h}`);
-  }
+  // Console debug for troubleshooting
+  console.log(`[Camera] zoom=${lockedZoom.toFixed(3)} vp=${cw}x${ch} map=${w}x${h} mapType=${s.currentMap}`);
 
   // Camera follows player position with smooth lerp
   let px = s.player.x;

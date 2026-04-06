@@ -23,6 +23,7 @@ const imgs: Record<string, HTMLImageElement> = {};
 
 export function loadImg(src: string): Promise<HTMLImageElement> {
   if (imgs[src]) return Promise.resolve(imgs[src]);
+  console.log(`[ImageLoader] Loading: ${src}`);
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -564,6 +565,11 @@ function drawBackground(ctx: CanvasRenderingContext2D, state: GameState) {
   const img = imgs[MAP_IMGS[state.currentMap]];
   const PAD = 600;
 
+  // Debug: log image status
+  const imgPath = MAP_IMGS[state.currentMap];
+  const imgLoaded = img && img.complete && img.naturalWidth > 0;
+  console.log(`[Background] map=${state.currentMap} img=${imgPath} loaded=${imgLoaded} zoom=${state.zoom}`);
+
   const edgeFill: Record<string, string> = {
     home: "#4a7c59", city: "#5a5a5a", fishing: "#1a5a3a",
     garden: "#3a8a3a", suburban: "#90c090",
@@ -575,6 +581,14 @@ function drawBackground(ctx: CanvasRenderingContext2D, state: GameState) {
   if (img && img.complete && img.naturalWidth > 0) {
     // Draw map at exact world size — no stretch
     ctx.drawImage(img, 0, 0, w, h);
+  } else {
+    // DEBUG: show placeholder text if image not loaded
+    ctx.save();
+    ctx.fillStyle = "#FFF";
+    ctx.font = '20px "Press Start 2P"';
+    ctx.textAlign = "center";
+    ctx.fillText(`LOADING: ${imgPath}`, w/2, h/2);
+    ctx.restore();
   }
 }
 
