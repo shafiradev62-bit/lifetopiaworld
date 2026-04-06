@@ -1139,14 +1139,13 @@ function handleMovement(s: GameState, _dt: number, stateRef?: MutableRefObject<G
 }
 
 function updateCamera(s: GameState) {
-  // Camera follows player, ALWAYS COVER VIEWPORT (no green edges)
   const cw = s.viewportW || 1280;
   const ch = s.viewportH || 720;
   const { w, h } = MAP_SIZES[s.currentMap];
-
-  // Minimum zoom to cover entire screen (no green bars)
   const coverZoom = Math.max(cw / w, ch / h);
-  s.zoom = Math.max(coverZoom, 1.0);
+  const minZoom = Math.max(coverZoom, 1.0);
+  const maxZoom = Math.max(coverZoom, 1.0);
+  s.zoom = Math.min(Math.max(minZoom, 1.0), maxZoom);
   s.targetZoom = s.zoom;
 
   // Camera follows player position with smooth lerp
