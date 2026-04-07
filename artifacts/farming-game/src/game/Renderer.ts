@@ -17,6 +17,7 @@ import {
   FARM_BALANCE_PRESETS,
   FarmBalancePreset,
   farmPlotIsActionable,
+  LOADING_TIPS,
 } from "./Game";
 
 const imgs: Record<string, HTMLImageElement> = {};
@@ -132,7 +133,7 @@ export function renderGame(
   const sx = shakeAmt > 0.5 ? (Math.sin(state.time * 0.3) * shakeAmt * 0.5) : 0;
   const sy = shakeAmt > 0.5 ? (Math.cos(state.time * 0.4) * shakeAmt * 0.5) : 0;
 
-  // Clear screen with dark background (NOT map-specific colors)
+  // Clear screen with dark background
   ctx.fillStyle = "#1a1a2e";
   ctx.fillRect(0, 0, W, H);
 
@@ -140,40 +141,41 @@ export function renderGame(
   ctx.translate(-camX + sx, -camY + sy);
   ctx.scale(zoom, zoom);
 
-  // Draw background in world space (correct alignment with game objects)
+  // Draw background in world space
   drawBackground(ctx, state);
   if (state.currentMap === "home") drawFarmPlots(ctx, state, "soil");
   if (state.currentMap === "home") drawTrees(ctx, state);
   if (state.currentMap === "home") drawFarmPlots(ctx, state, "crops");
-  if (state.currentMap === "home") drawSuburbanGatewayTeaser(ctx, state);
+  
   if (state.currentMap === "fishing") {
     drawWaterShimmer(ctx, state);
     drawFishingBobber(ctx, state);
   }
+  
   if (state.currentMap === "garden") {
-    drawGardenCritters(ctx, state);
     drawGardenFountain(ctx, state);
     drawGardenRemotePlayers(ctx, state);
     drawNPCs(ctx, state);
-    drawGardenOverlay(ctx, state);
   }
+  
   if (state.currentMap === "city") {
     drawShopZones(ctx, state);
     drawShopkeeperBubble(ctx, state);
   }
+  
   if (state.currentMap === "suburban") {
     drawSuburbanSpots(ctx, state);
-    // TEMP DISABLE CLOUDS
-    // drawClouds(ctx, state);
   }
-  // TEMP DISABLE CLOUDS ON HOME
-  // if (state.currentMap === "home" && state.time < 30000) {
-  //   drawClouds(ctx, state);
-  // }
+
   drawFootprints(ctx, state);
   drawPlayer(ctx, state);
+  
   if (state.currentMap === "fishing")
     drawFishingBiteAlert(ctx, state);
+
+  // FOREGROUND PARALLAX
+  drawParallaxForeground(ctx, state);
+
   drawVFX(ctx, state);
   drawDamageNumbers(ctx, state);
   if (!state.activePanel) drawMapLabels(ctx, state);
@@ -184,90 +186,150 @@ export function renderGame(
 
   ctx.restore();
 
+  // HUD & UI OVERLAYS (Drawn in screenspace)
   if (state.currentMap === "garden" && state.gardenActivePlayers >= 0) {
     drawGardenPlayersHud(ctx, state, W, H);
   }
 
-// ═══════════════════════════════════════════════════════════════
-  // ATMOSPHERE: Weather particles (drawn in screen space)
-  // ═══════════════════════════════════════════════════════════════
-  drawWeatherParticles(ctx, state, W, H);
-  
-  // ═══════════════════════════════════════════════════════════════
-  // MAP TRANSITION: Iris reveal effect
-  // ═══════════════════════════════════════════════════════════════
+  drawMiniMap(ctx, state, W, H);
+  drawLifeParticles(ctx, state, W, H);
   drawMapTransition(ctx, state, W, H);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// MAP TRANSITION SYSTEM
-// ═══════════════════════════════════════════════════════════════
-let transitionProgress = 0;
-let transitionType: "none" | "iris-out" | "iris-in" = "none";
-let transitionCallback: (() => void) | null = null;
-
-export function startMapTransition(callback: () => void) {
-  transitionType = "iris-out";
-  transitionProgress = 0;
-  transitionCallback = callback;
+/** Premium Map Transitions - Fade with Loading Tips */
+export function startMapTransition(state: GameState, callback: () => void) {
+  state.mapTransition = {
+    type: "fade-out",
+    progress: 0,
+    tip: LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)],
+  };
+  (state as any)._transitionCallback = callback;
 }
 
-export function isInTransition(): boolean {
-  return transitionType !== "none";
+export function isInTransition(state: GameState): boolean {
+  return state.mapTransition && state.mapTransition.type !== "none";
 }
 
 function drawMapTransition(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
-  if (transitionType === "none") return;
-  
-  transitionProgress += 0.035;
-  
-  const cx = W / 2;
-  const cy = H / 2;
-  const maxR = Math.sqrt(cx * cx + cy * cy);
+  const t = state.mapTransition;
+  if (!t || t.type === "none") return;
   
   ctx.save();
+  ctx.globalAlpha = Math.min(1, t.progress);
   ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
   
-  if (transitionType === "iris-out") {
-    const progress = Math.min(1, transitionProgress);
-    const r = maxR * easeOutCubic(progress);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
+  if (t.progress > 0.3) {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#FFF";
+    ctx.font = 'bold 12px "Outfit", sans-serif';
+    ctx.fillText(t.tip, W / 2, H / 2 + 45);
     
-    if (progress >= 1) {
-      transitionType = "iris-in";
-      transitionProgress = 0;
-      if (transitionCallback) transitionCallback();
-    }
-  } else if (transitionType === "iris-in") {
-    const progress = Math.min(1, transitionProgress);
-    const r = maxR * easeInCubic(progress);
+    const spin = (state.time / 200) % (Math.PI * 2);
+    ctx.strokeStyle = "#FFD700";
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    
-    if (progress >= 1) {
-      transitionType = "none";
-      transitionCallback = null;
-    }
+    ctx.arc(W / 2, H / 2 - 20, 18, spin, spin + Math.PI * 1.5);
+    ctx.stroke();
   }
-  
   ctx.restore();
 }
 
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
+/** Professional elliptical shadow for NPCs and Player */
+function drawShadow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + 2, r, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
-function easeInCubic(t: number): number {
-  return t * t * t;
+function drawLifeParticles(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
+  if (!state.lifeParticles) return;
+  for (const p of state.lifeParticles) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = Math.min(1, p.life / 1000) * 0.7;
+    ctx.fillStyle = p.color;
+    
+    if (p.type === "butterfly") {
+      const flap = Math.abs(Math.sin(state.time / 100)) * p.size;
+      ctx.fillRect(-p.size, -p.size/2, flap, p.size);
+      ctx.fillRect(p.size - flap, -p.size/2, flap, p.size);
+    } else if (p.type === "leaf") {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size, p.size * 0.6, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    }
+    ctx.restore();
+  }
 }
 
+function drawParallaxForeground(ctx: CanvasRenderingContext2D, state: GameState) {
+  const { cameraX, cameraY, time, currentMap } = state;
+  ctx.save();
+  const px = -cameraX * 0.2;
+  const py = -cameraY * 0.2;
+  ctx.translate(px, py);
+  
+  if (currentMap === "garden") {
+    ctx.fillStyle = "rgba(30, 70, 30, 0.4)";
+    ctx.filter = "blur(18px)";
+    ctx.beginPath();
+    ctx.arc(-50, 100, 240, 0, Math.PI * 2);
+    ctx.arc(1140, 480, 280, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (currentMap === "city") {
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.filter = "blur(12px)";
+    ctx.fillRect(80, -100, 35, 900);
+    ctx.fillRect(900, -100, 35, 900);
+  }
+  ctx.restore();
+}
+
+function drawMiniMap(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
+  const size = 95;
+  const pad = 20;
+  const x = W - size - pad;
+  const y = pad;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, 0, 0, size, size, 16);
+  ctx.fill();
+  ctx.stroke();
+  const mapWidth = MAP_SIZES[state.currentMap].w;
+  const mapHeight = MAP_SIZES[state.currentMap].h;
+  const scale = (size - 10) / Math.max(mapWidth, mapHeight);
+  const innerW = mapWidth * scale;
+  const innerH = mapHeight * scale;
+  const ox = (size - innerW) / 2;
+  const oy = (size - innerH) / 2;
+  ctx.fillStyle = "rgba(255,255,255,0.1)";
+  ctx.fillRect(ox, oy, innerW, innerH);
+  const dotX = ox + state.player.x * scale;
+  const dotY = oy + state.player.y * scale;
+  ctx.fillStyle = "#FFD700";
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.font = 'bold 9px "Outfit", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText(state.currentMap.toUpperCase(), size / 2, size - 8);
+  ctx.restore();
+}
+
+/** World-space gate toward Suburban — fog clears as player approaches */
 function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
   const scrollOffset = Math.floor(state.time / 60) % 64;
-
-  // ── Animated water shimmer ──
   ctx.save();
   ctx.globalAlpha = 0.18;
   ctx.strokeStyle = "#AADDFF";
@@ -284,16 +346,10 @@ function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
   }
   ctx.restore();
 
-  // ── Dock / pier — hard visual boundary at y=210 ──
   ctx.save();
-
-  // Dock planks (horizontal wooden boards)
-  const dockY = 210;
-  const dockH = 22;
+  const dockY = 210, dockH = 22;
   ctx.fillStyle = "#7B5230";
   ctx.fillRect(0, dockY, 1040, dockH);
-
-  // Plank lines
   ctx.strokeStyle = "#5C3A1E";
   ctx.lineWidth = 2;
   for (let x = 0; x < 1040; x += 48) {
@@ -302,51 +358,78 @@ function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.lineTo(x, dockY + dockH);
     ctx.stroke();
   }
-
-  // Top edge highlight
-  ctx.strokeStyle = "#C8924A";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(0, dockY);
-  ctx.lineTo(1040, dockY);
-  ctx.stroke();
-
-  // Bottom edge shadow
-  ctx.strokeStyle = "#3E1F08";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, dockY + dockH);
-  ctx.lineTo(1040, dockY + dockH);
-  ctx.stroke();
-
-  // Dock posts (vertical pillars into water)
-  ctx.fillStyle = "#5C3A1E";
-  for (let x = 80; x < 1040; x += 160) {
-    ctx.fillRect(x - 6, dockY - 8, 12, dockH + 30);
-    // Post cap
-    ctx.fillStyle = "#8B5E3C";
-    ctx.fillRect(x - 8, dockY - 12, 16, 8);
-    ctx.fillStyle = "#5C3A1E";
-  }
-
-  // "CAST HERE" hint text at dock center
-  ctx.font = '7px "Press Start 2P", monospace';
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255,228,150,0.7)";
-  ctx.fillText("[ CLICK TO CAST ]", 520, dockY + 15);
-
   ctx.restore();
 }
 
-/** World-space gate toward Suburban — fog clears as player approaches */
-const SUBURBAN_GATE_X = 988;
-const SUBURBAN_GATE_Y = 350;
-
-function drawSuburbanGatewayTeaser(
-  _ctx: CanvasRenderingContext2D,
-  _state: GameState,
-) {
-  // Removed — blue glass tower overlay was bleeding into home map background
+function drawNPCs(ctx: CanvasRenderingContext2D, state: GameState) {
+  for (const n of state.npcs) {
+    ctx.save();
+    ctx.translate(n.x, n.y);
+    
+    // Shadow
+    drawShadow(ctx, 0, 0, 15);
+    
+    // Jump/Bounce based on state
+    let by = 0;
+    if (n.state === "walking") by = Math.abs(Math.sin(state.time / 100)) * 4;
+    else if (n.state === "waving") by = Math.abs(Math.sin(state.time / 200)) * 6;
+    
+    ctx.translate(0, -by);
+    
+    // Body (Simplified sprite for now)
+    ctx.fillStyle = n.color;
+    roundRect(ctx, -12, -35, 24, 35, 6);
+    ctx.fill();
+    
+    // Eyes
+    ctx.fillStyle = "#000";
+    ctx.fillRect(-6, -28, 3, 3);
+    ctx.fillRect(3, -28, 3, 3);
+    
+    // Waving arm
+    if (n.state === "waving") {
+      ctx.save();
+      ctx.translate(14, -20);
+      ctx.rotate(Math.sin(state.time / 100) * 0.5);
+      ctx.fillStyle = n.color;
+      ctx.fillRect(0, -2, 10, 4);
+      ctx.restore();
+    }
+    
+    // Name tag
+    ctx.font = 'bold 8px "Outfit", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillText(n.name, 0, -42);
+    ctx.fillStyle = "#FFF";
+    ctx.fillText(n.name, 0, -43);
+    
+    // Bouncy Chat Bubble
+    if (n.chatVisible && n.chatText) {
+      ctx.save();
+      const bounce = Math.sin(state.time / 200) * 3 - 60;
+      ctx.translate(0, bounce);
+      
+      ctx.font = 'bold 10px "Outfit", sans-serif';
+      const tw = ctx.measureText(n.chatText).width + 20;
+      const th = 24;
+      
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 2;
+      roundRect(ctx, -tw/2, -th/2, tw, th, 12);
+      ctx.fill();
+      ctx.stroke();
+      
+      ctx.fillStyle = "#333";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(n.chatText, 0, 0);
+      ctx.restore();
+    }
+    
+    ctx.restore();
+  }
 }
 
 function drawGardenRemotePlayers(
@@ -1175,96 +1258,6 @@ function drawFishingStruggleBar(ctx: CanvasRenderingContext2D, x: number, y: num
   ctx.fillStyle = "#FFF";
   ctx.fillText("REEL!", x, y - 5);
 }
-
-function drawNPCs(ctx: CanvasRenderingContext2D, state: GameState) {
-  for (let i = 0; i < state.npcs.length; i++) {
-    const npc = state.npcs[i];
-    const isMoving = Math.abs(npc.vx) > 0.1 || Math.abs(npc.vy) > 0.1;
-    const facing = npc.vx > 0 ? "right" : "left";
-    const walkCycle = Math.floor((state.time / 180 + i * 1.3) % 4);
-
-    ctx.save();
-    ctx.translate(npc.x, npc.y);
-
-    // Shadow
-    ctx.save();
-    ctx.scale(1.3, 0.3);
-    ctx.fillStyle = "rgba(0,0,0,0.22)";
-    ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-
-    const flip = facing === "left" ? -1 : 1;
-    ctx.scale(flip, 1);
-
-    // Draw NPC as simple chibi shape (not player sprite)
-    const bob = isMoving ? Math.sin(state.time / 120 + i) * 2 : Math.sin(state.time / 600 + i) * 1;
-    const legSwing = isMoving ? Math.sin(state.time / 120 + i) * 6 : 0;
-
-    // Body color per NPC
-    const bodyColors = ["#E57373","#64B5F6","#81C784","#FFD54F","#BA68C8"];
-    const bodyCol = bodyColors[i % bodyColors.length];
-
-    ctx.translate(0, bob);
-
-    // Legs
-    ctx.fillStyle = "#5D4037";
-    ctx.fillRect(-6 + legSwing * 0.5, -10, 5, 10);
-    ctx.fillRect(1 - legSwing * 0.5, -10, 5, 10);
-
-    // Body
-    ctx.fillStyle = bodyCol;
-    ctx.beginPath();
-    ctx.roundRect(-9, -28, 18, 18, 3);
-    ctx.fill();
-
-    // Head
-    ctx.fillStyle = "#FFCC80";
-    ctx.beginPath(); ctx.arc(0, -34, 9, 0, Math.PI * 2); ctx.fill();
-
-    // Eyes with blink animation
-    const blinkCycle = (state.time / 4000 + i) % 1;
-    const isBlinking = blinkCycle > 0.95;
-    const lookOffset = Math.sin(state.time / 2000 + i * 2) * 1;
-    
-    if (isBlinking) {
-      // Closed eyes (blink)
-      ctx.strokeStyle = "#3E2723";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(-5, -36); ctx.lineTo(-3, -36);
-      ctx.moveTo(3, -36); ctx.lineTo(5, -36);
-      ctx.stroke();
-    } else {
-      // Open eyes with look direction
-      ctx.fillStyle = "#3E2723";
-      ctx.fillRect(-4 + lookOffset * 0.3, -36, 2, 2);
-      ctx.fillRect(2 + lookOffset * 0.3, -36, 2, 2);
-      
-      // Eye shine
-      ctx.fillStyle = "#FFF";
-      ctx.fillRect(-3 + lookOffset * 0.3, -36, 1, 1);
-      ctx.fillRect(3 + lookOffset * 0.3, -36, 1, 1);
-    }
-
-    // Hat
-    ctx.fillStyle = "#5D4037";
-    ctx.fillRect(-8, -44, 16, 4);
-    ctx.fillRect(-5, -52, 10, 10);
-
-    ctx.scale(flip, 1); // unflip for text
-
-    // Name tag
-    ctx.font = '5px "Press Start 2P", monospace';
-    ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.fillText(npc.name, 1, -57);
-    ctx.fillStyle = "#FFD700";
-    ctx.fillText(npc.name, 0, -58);
-
-    ctx.restore();
-  }
-}
-
 function drawShopZones(ctx: CanvasRenderingContext2D, state: GameState) {
   const shops = [
     { x: 200, y: 480, label: "SEEDS",  color: "#81C784" },
@@ -1414,7 +1407,11 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
     targetX,
     targetY,
     jumpY,
+    outfit,
   } = state.player;
+  
+  // Professional Character Shadow
+  drawShadow(ctx, x, y, 14);
 
   const isWalking =
     (moving || targetX !== null) &&
@@ -1540,11 +1537,24 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
   ctx.restore();
 
   const jF = state.player.jumpFlip || 0;
-  ctx.translate(0, (jumpY || 0));
-  ctx.rotate((jF * Math.PI) / 180);
+  const jumpAmt = jumpY ? Math.abs(jumpY) * 0.15 : 0;
+  
+  ctx.save();
+  ctx.translate(x, y + jumpY);
+  
+  // Character Customization: Outfit Presets via Hue-Rotate
+  const outfitHues: Record<string, string> = {
+    default: "none",
+    farmer: "hue-rotate(90deg) brightness(1.1)",
+    city: "hue-rotate(190deg) saturate(1.2)",
+    suburban: "hue-rotate(280deg) brightness(0.9)",
+  };
+  if (outfit && outfitHues[outfit]) {
+    ctx.filter = outfitHues[outfit];
+  }
 
-  const flipX = facing === "left" ? -1 : 1;
-  ctx.scale(flipX, 1);
+  const flip = facing === "left" ? -1 : 1;
+  ctx.scale(flip, 1);
 
   if (sprite && sprite.complete && sprite.naturalWidth > 0) {
     const targetH = 38;
@@ -1707,6 +1717,14 @@ function drawVFX(ctx: CanvasRenderingContext2D, state: GameState) {
       ctx.lineTo(p.x + stW * 3, p.y);
       ctx.lineTo(p.x, p.y + stW * 0.5);
       ctx.fill();
+
+    } else if (p.type === "shockwave") {
+      const prog = 1 - alpha;
+      ctx.strokeStyle = "rgba(255,255,255," + (alpha * 0.8) + ")";
+      ctx.lineWidth = 4 * (1 - prog);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 5, 40 * prog, 20 * prog, 0, 0, Math.PI * 2);
+      ctx.stroke();
 
     } else if (p.type === "slash") {
       // Arc / Sword Swing Effect — shoots OUT from player toward facing direction

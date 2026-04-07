@@ -160,8 +160,8 @@ export default function FarmingGame() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
   const [walletType, setWalletType] = useState<"solana" | "evm" | null>(null);
-  const [connectingWallet, setConnectingWallet] = useState<"phantom"|"solflare"|"backpack"|"metamask"|"trust"|"web3"|null>(null);
   const [showWorldMap, setShowWorldMap] = useState(false);
+  const [showOutfitPanel, setShowOutfitPanel] = useState(false);
   const [nfts, setNfts] = useState<string[]>([]);
   const nftsRef = useRef<string[]>([]);
   const lastServerEconomyRef = useRef(snapshotEconomy(stateRef.current.player));
@@ -2356,6 +2356,37 @@ export default function FarmingGame() {
           </div>
           <div className="gf" style={{ fontSize: isMobile ? 5 : 8, color: "rgba(255,215,0,0.7)", textShadow: "1px 1px 0 #000" }}>
             RARE FISH HUB
+          </div>
+        </div>
+      )}
+      {/* PREMIUM OUTFIT PANEL */}
+      {showOutfitPanel && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-[12px] animate-in fade-in zoom-in duration-300">
+          <div className="relative w-full max-w-sm p-6 bg-[#3A2010] border-4 border-[#CE9E64] rounded-3xl shadow-2xl transform transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <h2 className="mb-4 text-xl font-bold text-center text-[#FFD700] drop-shadow-md">SELECT OUTFIT</h2>
+            <div className="grid grid-cols-2 gap-4">
+              {["default", "farmer", "city", "suburban"].map((o) => (
+                <button
+                  key={o}
+                  onClick={() => {
+                    stateRef.current.player.outfit = o as any;
+                    setDs({ ...stateRef.current });
+                    AudioManager.playSFX("click");
+                  }}
+                  className={`p-4 rounded-xl border-2 transition-all ${
+                    ds.player.outfit === o ? "bg-[#CE9E64] border-[#FFD700] scale-105" : "bg-[#5C3A1E] border-transparent opacity-80"
+                  } text-white font-bold uppercase text-xs`}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={() => setShowOutfitPanel(false)}
+              className="mt-6 w-full py-3 bg-[#AD7D54] hover:bg-[#D9B380] text-white font-black rounded-xl border-b-4 border-[#5C3A1E] active:border-b-0 active:translate-y-1 transition-all"
+            >
+              CLOSE
+            </button>
           </div>
         </div>
       )}

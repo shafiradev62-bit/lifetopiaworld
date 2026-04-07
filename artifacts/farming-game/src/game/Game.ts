@@ -125,6 +125,12 @@ export interface NPC {
   vx: number;
   vy: number;
   moveTimer: number;
+  state: "idle" | "walking" | "sitting" | "waving";
+  targetX?: number;
+  targetY?: number;
+  chatText?: string;
+  chatTimer?: number;
+  chatVisible?: boolean;
 }
 
 export interface FishBobber {
@@ -150,6 +156,21 @@ export interface GardenCritter {
   tx: number;
   ty: number;
   speed: number;
+}
+
+export interface LifeParticle {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  type: "leaf" | "dust" | "butterfly" | "petal";
+  color: string;
+  rotation: number;
+  rotVel: number;
 }
 
 export interface ShopItem {
@@ -224,6 +245,7 @@ export interface GameState {
     emoteBubble: string | null;
     emoteBubbleUntil: number;
     nftEligibility: boolean;
+    outfit: "default" | "farmer" | "city" | "suburban";
   };
   currentMap: MapType;
   farmPlots: FarmPlot[];
@@ -299,7 +321,23 @@ export interface GameState {
   _hasZoomedInThisSession?: boolean;
   /** Fishing map: timestamp when player started drowning (for respawn timer) */
   _fishingDrownStart?: number;
+  mapTransition: {
+    type: "none" | "fade-out" | "fade-in";
+    progress: number;
+    tip: string;
+  };
+  lifeParticles: LifeParticle[];
 }
+
+export const LOADING_TIPS = [
+  "Tip: Rare fish sell for 3x Gold!",
+  "Tip: Watering crops twice a day is a myth—once is enough!",
+  "Tip: Visit the Garden to meet other players!",
+  "Tip: Fertilized crops grow 2x faster!",
+  "Tip: Check the market trend for bonus prices!",
+  "Tip: Use the Axe to clear withered crops.",
+  "Tip: The City Shop stocks new seeds daily!",
+];
 
 
 /** GDD base grow times (ms) - Harvest Moon style

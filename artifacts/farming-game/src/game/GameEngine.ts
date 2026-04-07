@@ -30,6 +30,7 @@ import {
   toolIdToCrop,
   seedUnlockLevel,
   stressWiltThresholdMs,
+  LifeParticle,
 } from "./Game";
 import { supabase } from "./supabase";
 
@@ -160,8 +161,11 @@ export function createInitialState(): GameState {
       emoteBubble: null,
       emoteBubbleUntil: 0,
       nftEligibility: false,
+      outfit: "default",
     },
     currentMap: "home",
+    mapTransition: { type: "none", progress: 0, tip: "" },
+    lifeParticles: [],
     seedCooldowns: {},
     fishingSession: null,
     farmPlots: createFarmPlots(),
@@ -306,11 +310,11 @@ function createFarmPlots(): FarmPlot[] {
 
 function createNPCs(): NPC[] {
   return [
-    { id: "npc1", x: 280, y: 430, name: "LUNA",   color: "#FF8A80", vx: 0, vy: 0, moveTimer: 0 },
-    { id: "npc2", x: 680, y: 400, name: "RIKO",   color: "#82B1FF", vx: 0, vy: 0, moveTimer: 60 },
-    { id: "npc3", x: 480, y: 460, name: "MIKA",   color: "#B9F6CA", vx: 0, vy: 0, moveTimer: 30 },
-    { id: "npc4", x: 820, y: 450, name: "TARO",   color: "#FFD180", vx: 0, vy: 0, moveTimer: 45 },
-    { id: "npc5", x: 160, y: 445, name: "SARI",   color: "#EA80FC", vx: 0, vy: 0, moveTimer: 20 },
+    { id: "npc1", x: 280, y: 430, name: "LUNA",   color: "#FF8A80", vx: 0, vy: 0, moveTimer: 0,  state: "idle" },
+    { id: "npc2", x: 680, y: 400, name: "RIKO",   color: "#82B1FF", vx: 0, vy: 0, moveTimer: 60, state: "idle" },
+    { id: "npc3", x: 480, y: 460, name: "MIKA",   color: "#B9F6CA", vx: 0, vy: 0, moveTimer: 30, state: "idle" },
+    { id: "npc4", x: 820, y: 450, name: "TARO",   color: "#FFD180", vx: 0, vy: 0, moveTimer: 45, state: "idle" },
+    { id: "npc5", x: 160, y: 445, name: "SARI",   color: "#EA80FC", vx: 0, vy: 0, moveTimer: 20, state: "idle" },
   ];
 }
 
@@ -348,9 +352,116 @@ function ensureGardenCritters(s: GameState) {
   }
 }
 
-function updateGardenCritters(s: GameState, _dt: number) {
+function updateGardenCritters(s: GameState, dt: number) {
   // Purged: No ugly critters or fountain mist in Garden
   s.gardenCritters = [];
+}
+
+const NPC_CHATS = [
+  "Have a great day!",
+  "Nice weather today!",
+  "How is your farm?",
+  "Love the garden!",
+  "Stay a while!",
+  "Need help with farming?",
+  "The flowers smell nice!",
+];
+
+function updateNPCs(s: GameState, dt: number) {
+  for (const n of s.npcs) {
+    n.moveTimer -= dt;
+    
+    // Chat logic
+    if (n.chatTimer) n.chatTimer -= dt;
+    else {
+      if (Math.random() < 0.005) {
+        n.chatText = NPC_CHATS[Math.floor(Math.random() * NPC_CHATS.length)];
+        n.chatTimer = 3000;
+        n.chatVisible = true;
+      }
+    }
+    if (n.chatTimer && n.chatTimer <= 0) n.chatVisible = false;
+
+    // AI State Machine
+    if (n.state === "idle") {
+      if (n.moveTimer <= 0) {
+        const roll = Math.random();
+        if (roll < 0.3) {
+          n.state = "walking";
+          n.targetX = n.x + (Math.random() - 0.5) * 200;
+          n.targetY = n.y + (Math.random() - 0.5) * 100;
+          // Constrain to garden
+          n.targetX = Math.max(100, Math.min(940, n.targetX));
+          n.targetY = Math.max(300, Math.min(520, n.targetY));
+          n.moveTimer = 4000;
+        } else if (roll < 0.5) {
+          n.state = "waving";
+          n.moveTimer = 2000;
+        } else {
+          n.moveTimer = 1000 + Math.random() * 3000;
+        }
+      }
+    } else if (n.state === "walking") {
+      if (n.targetX !== undefined && n.targetY !== undefined) {
+        const dx = n.targetX - n.x;
+        const dy = n.targetY - n.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 5 || n.moveTimer <= 0) {
+          n.state = "idle";
+          n.moveTimer = 2000 + Math.random() * 2000;
+        } else {
+          n.vx = (dx / dist) * 1.2;
+          n.vy = (dy / dist) * 1.2;
+          n.x += n.vx;
+          n.y += n.vy;
+        }
+      }
+    } else if (n.state === "waving") {
+      if (n.moveTimer <= 0) {
+        n.state = "idle";
+        n.moveTimer = 2000;
+      }
+    }
+  }
+}
+
+function updateLifeParticles(s: GameState, dt: number) {
+  const map = s.currentMap;
+  // Spawn particles based on map density
+  let spawnRate = 0.05;
+  let type: "leaf" | "dust" | "butterfly" | "petal" = "dust";
+  if (map === "home") { type = "leaf"; spawnRate = 0.1; }
+  else if (map === "garden") { type = "butterfly"; spawnRate = 0.03; }
+  else if (map === "suburban") { type = "leaf"; spawnRate = 0.08; }
+  else if (map === "city") { type = "dust"; spawnRate = 0.2; }
+
+  if (Math.random() < spawnRate) {
+    const p: LifeParticle = {
+      id: `lp${s.particleId++}`,
+      x: Math.random() * 1040,
+      y: Math.random() * 580,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: type === "leaf" ? 0.8 + Math.random() * 0.5 : (Math.random() - 0.5) * 0.5,
+      life: 5000 + Math.random() * 5000,
+      maxLife: 10000,
+      size: type === "butterfly" ? 4 : 2 + Math.random() * 3,
+      type,
+      color: type === "leaf" ? "#8BC34A" : type === "butterfly" ? "#FF4081" : "#FFECB3",
+      rotation: Math.random() * Math.PI * 2,
+      rotVel: (Math.random() - 0.5) * 0.05,
+    };
+    // If leaf/dust, spawn at top or random
+    if (type === "leaf") p.y = -20;
+    s.lifeParticles.push(p);
+  }
+
+  s.lifeParticles = s.lifeParticles.filter(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= dt;
+    p.rotation += p.rotVel;
+    return p.life > 0 && p.x >= -50 && p.x <= 1100 && p.y >= -50 && p.y <= 650;
+  });
 }
 
 function resolveFishingSession(s: GameState, dt: number) {
@@ -424,6 +535,7 @@ function completeFishing(s: GameState) {
   
   s.pendingCloudSave = true;
   fs.timer = 2000; // Finish linger
+  s.shake = 15; // Feedback for catch
 }
 
 export function updateGame(state: GameState, dt: number, stateRef?: MutableRefObject<GameState>): GameState {
@@ -432,6 +544,7 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
     player: { ...state.player },
     vfxParticles: [...state.vfxParticles],
     damageNumbers: [...state.damageNumbers],
+    lifeParticles: [...(state.lifeParticles || [])],
   };
   // [DEBUG] Log player state at frame start — critical for tracking character disappear
   if (s.player.actionTimer > 0) {
@@ -483,6 +596,7 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
   updateCrops(s);
   updateVFX(s);
   updateDamageNumbers(s);
+  updateLifeParticles(s, dt);
   updatePlayerAnim(s, dt);
   if (s.fishingCatchHold && s.time < s.fishingCatchHold.until) {
     s.player.action = "sickle";
@@ -1287,30 +1401,25 @@ function updateNotification(s: GameState, dt: number) {
     s.notification = { ...s.notification, life: s.notification.life - dt };
     if (s.notification.life <= 0) s.notification = null;
   }
-}
-
-function updateNPCs(s: GameState, _dt: number) {
-  const { w } = MAP_SIZES.garden;
-  const { min, max } = GARDEN_ROAD_Y;
-  const roadY = (min + max) / 2;
-
-  s.npcs = s.npcs.map((npc, i) => {
-    const n = { ...npc };
-    // Each NPC walks horizontally at fixed speed, bounces at edges
-    if (n.vx === 0) {
-      // Init direction: alternate left/right per NPC index
-      n.vx = i % 2 === 0 ? 0.7 : -0.7;
+  
+  // Premium Map Transition Logic
+  if (s.mapTransition && s.mapTransition.type !== "none") {
+    s.mapTransition.progress += 0.025;
+    if (s.mapTransition.progress >= 1 && s.mapTransition.type === "fade-out") {
+      // Execute pending map change
+      if ((s as any)._transitionCallback) {
+        (s as any)._transitionCallback();
+        (s as any)._transitionCallback = null;
+      }
+      s.mapTransition.type = "fade-in";
+      s.mapTransition.progress = 1;
+    } else if (s.mapTransition.progress >= 2 && s.mapTransition.type === "fade-in") {
+      s.mapTransition.type = "none";
+      s.mapTransition.progress = 0;
     }
-    n.x += n.vx;
-    // Bounce at map edges
-    if (n.x <= 60) { n.x = 60; n.vx = Math.abs(n.vx); }
-    if (n.x >= w - 60) { n.x = w - 60; n.vx = -Math.abs(n.vx); }
-    // Keep on road, no vertical drift
-    n.y = roadY;
-    n.vy = 0;
-    return n;
-  });
+  }
 }
+
 
 function updateFishing(s: GameState, dt: number) {
   const b = s.fishBobber;
@@ -1333,7 +1442,7 @@ export function spawnVFX(
   s: GameState,
   x: number,
   y: number,
-  type: "harvest" | "plant" | "water" | "coin" | "sparkle" | "fish" | "dust" | "flash" | "slash" | "bubble",
+  type: "harvest" | "plant" | "water" | "coin" | "sparkle" | "fish" | "dust" | "flash" | "slash" | "bubble" | "shockwave",
   facing?: "left" | "right" | "up" | "down",
 ) {
   const palettes: Record<string, string[]> = {
@@ -1346,17 +1455,23 @@ export function spawnVFX(
     fish: ["#2196F3", "#B3E5FC", "#FFF"],
     dust: ["#8D6E63", "#5D4037", "#BCAAA4"],
     flash: ["#FFFFFF", "#FFF9C4"],
-    slash: ["#E1F5FE", "#B3E5FC", "#FFFFFF"]
+    slash: ["#E1F5FE", "#B3E5FC", "#FFFFFF"],
+    shockwave: ["#FFFFFF", "rgba(255,255,255,0.4)"]
   };
   const c = palettes[type] || ["#FFF"];
   
-  // REMOVED: flash effect (fire-like VFX)
-  if (type === "flash") {
-    return; // Disabled - no more fire effects
+  if (type === "shockwave") {
+    s.vfxParticles.push({
+      id: `p${s.particleId++}`,
+      x, y, vx: 0, vy: 0,
+      life: 20, maxLife: 20,
+      color: "#FFF", size: 5,
+      type: "shockwave" as any
+    });
+    return;
   }
 
-  // MINIMAL particle count - removed ALL excessive effects
-  const count = type === "dust" ? 3 : (type === "slash" ? 0 : 4); // slash = 0 particles!
+  const count = type === "dust" ? 3 : (type === "slash" ? 0 : 4);
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
     const speed = type === "dust" ? 0.6 + Math.random() * 1.5 : (type === "slash" ? 0 : 2.0 + Math.random() * 4.5);
@@ -1451,6 +1566,12 @@ export function handleToolAction(
   }
 
   if (ns.currentMap === "suburban" && mouseX !== undefined && mouseY !== undefined) {
+    // Mirror / Outfit Zone
+    if (Math.hypot(tx - 520, ty - 280) < 60) {
+      (ns as any).showOutfitPanelRequest = true; // Flag for React to see
+      return ns;
+    }
+    
     for (const z of SUBURBAN_HOUSE_ZONES) {
       if (
         tx >= z.x &&
