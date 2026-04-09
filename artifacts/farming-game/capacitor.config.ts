@@ -6,8 +6,18 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   android: {
     backgroundColor: "#000000",
-    allowMixedContent: true,
+    allowMixedContent: false,
     webContentsDebuggingEnabled: false,
+  },
+  // Allow navigation to wallet universal links
+  server: {
+    allowNavigation: [
+      "phantom.app",
+      "solflare.com",
+      "backpack.app",
+      "metamask.app.link",
+      "link.trustwallet.com",
+    ],
   },
   plugins: {
     SplashScreen: {

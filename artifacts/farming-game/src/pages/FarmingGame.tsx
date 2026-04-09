@@ -86,10 +86,10 @@ function snapshotEconomy(p: GameState["player"]) {
 
 function formatGrowDuration(ms: number): string {
   const s = Math.max(1, Math.round(ms / 1000));
-  if (s < 60) return `String(s) + 's'`;
+  if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   const r = s % 60;
-  return r ? `String(m) + 'm ' + String(r) + 's'` : `String(m) + 'm'`;
+  return r ? `${m}m ${r}s` : `${m}m`;
 }
 
 // â”€â”€ Farm status helper â€” crystal-clear step-by-step instruction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -197,6 +197,8 @@ export default function FarmingGame() {
   // localStorage buffer for mobile battery saving
   const localSaveBuffer = useRef<Record<string, unknown>>({});
   const localSaveDirty = useRef(false);
+  // Wallet connecting state
+  const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   // Boost charges (limited uses per session)
   const [boostCharges, setBoostCharges] = useState(3);
 
@@ -492,16 +494,17 @@ export default function FarmingGame() {
   // â”€â”€ Connect Phantom - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectPhantom = async () => {
     const w = window as any;
+    const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.phantom?.solana ?? w.solana;
-    const injected = !!(sol?.connect && (sol.isPhantom || w.phantom?.solana));
+    const injected = !!(sol?.connect && (sol.isPhantom || w.phantom?.solana?.isPhantom));
+
+    // 1. Injected provider (desktop extension OR Phantom in-app browser)
     if (injected) {
       setConnectingWallet("phantom");
       try {
         let res: any;
         try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) {
-          res = await sol.connect();
-        }
+        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         await _onWalletConnected(pk.toString(), "solana", sol);
@@ -514,45 +517,24 @@ export default function FarmingGame() {
       }
       return;
     }
-    if (isMobile) {
-      // On mobile WebViews (Capacitor / Chrome), Phantom may have injected its provider.
-      // Try it first — this avoids needing HTTPS URLs entirely.
-      const mobilePhantom = (window as any).phantom?.solana ?? (window as any).solana;
-      if (mobilePhantom?.isPhantom && typeof mobilePhantom.connect === "function") {
-        setConnectingWallet("phantom");
-        try {
-          let res: any;
-          try { res = await mobilePhantom.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-          if (!res?.publicKey && !mobilePhantom.publicKey) res = await mobilePhantom.connect();
-          const pk = res?.publicKey ?? mobilePhantom.publicKey;
-          if (!pk) throw new Error("No public key returned");
-          await _onWalletConnected(pk.toString(), "solana", mobilePhantom);
-        } catch (e: any) {
-          console.error("[Phantom Mobile]", e);
-          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-          setDs({ ...stateRef.current });
-        } finally {
-          setConnectingWallet(null);
-        }
-        return;
-      }
-      // No injected provider — try HTTPS deep link
-      if (!openWalletDeepLink("phantom")) {
-        stateRef.current.notification = {
-          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
-          life: 300,
-        };
-        setDs({ ...stateRef.current });
-      }
+
+    // 2. Mobile (Capacitor native or mobile browser) — use deep link
+    if (isMobile || isNative) {
+      setConnectingWallet("phantom");
+      stateRef.current.notification = { text: "OPENING PHANTOM WALLET...", life: 200 };
+      setDs({ ...stateRef.current });
+      setTimeout(() => setConnectingWallet(null), 3000);
+      openWalletDeepLink("phantom");
       return;
     }
+
+    // 3. Desktop without extension
     stateRef.current.notification = { text: "PHANTOM NOT INSTALLED - GET IT AT PHANTOM.APP", life: 150 };
     setDs({ ...stateRef.current });
   };
-
-  // â”€â”€ Connect Solflare - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectSolflare = async () => {
     const w = window as any;
+    const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.solflare ?? w.solana;
     const injected = !!(sol?.connect && (w.solflare?.isSolflare || sol?.isSolflare));
     if (injected) {
@@ -560,9 +542,7 @@ export default function FarmingGame() {
       try {
         let res: any;
         try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) {
-          res = await sol.connect();
-        }
+        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         await _onWalletConnected(pk.toString(), "solana", sol);
@@ -575,43 +555,20 @@ export default function FarmingGame() {
       }
       return;
     }
-    if (isMobile) {
-      // On mobile WebViews, Solflare may have injected its provider.
-      const mobileSolflare = (window as any).solflare ?? (window as any).solana;
-      if (mobileSolflare?.isSolflare && typeof mobileSolflare.connect === "function") {
-        setConnectingWallet("solflare");
-        try {
-          let res: any;
-          try { res = await mobileSolflare.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-          if (!res?.publicKey && !mobileSolflare.publicKey) res = await mobileSolflare.connect();
-          const pk = res?.publicKey ?? mobileSolflare.publicKey;
-          if (!pk) throw new Error("No public key returned");
-          await _onWalletConnected(pk.toString(), "solana", mobileSolflare);
-        } catch (e: any) {
-          console.error("[Solflare Mobile]", e);
-          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-          setDs({ ...stateRef.current });
-        } finally {
-          setConnectingWallet(null);
-        }
-        return;
-      }
-      if (!openWalletDeepLink("solflare")) {
-        stateRef.current.notification = {
-          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
-          life: 300,
-        };
-        setDs({ ...stateRef.current });
-      }
+    if (isMobile || isNative) {
+      setConnectingWallet("solflare");
+      stateRef.current.notification = { text: "OPENING SOLFLARE WALLET...", life: 200 };
+      setDs({ ...stateRef.current });
+      setTimeout(() => setConnectingWallet(null), 3000);
+      openWalletDeepLink("solflare");
       return;
     }
     stateRef.current.notification = { text: "SOLFLARE NOT INSTALLED - GET IT AT SOLFLARE.COM", life: 150 };
     setDs({ ...stateRef.current });
   };
-
-  // â”€â”€ Connect Backpack - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectBackpack = async () => {
     const w = window as any;
+    const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.backpack ?? w.solana;
     const injected = !!(sol?.connect && w.backpack?.isBackpack);
     if (injected) {
@@ -619,9 +576,7 @@ export default function FarmingGame() {
       try {
         let res: any;
         try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) {
-          res = await sol.connect();
-        }
+        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         await _onWalletConnected(pk.toString(), "solana", sol);
@@ -634,41 +589,17 @@ export default function FarmingGame() {
       }
       return;
     }
-    if (isMobile) {
-      // On mobile WebViews, Backpack may have injected its provider.
-      const mobileBackpack = (window as any).backpack ?? (window as any).solana;
-      if (mobileBackpack?.isBackpack && typeof mobileBackpack.connect === "function") {
-        setConnectingWallet("backpack");
-        try {
-          let res: any;
-          try { res = await mobileBackpack.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-          if (!res?.publicKey && !mobileBackpack.publicKey) res = await mobileBackpack.connect();
-          const pk = res?.publicKey ?? mobileBackpack.publicKey;
-          if (!pk) throw new Error("No public key returned");
-          await _onWalletConnected(pk.toString(), "solana", mobileBackpack);
-        } catch (e: any) {
-          console.error("[Backpack Mobile]", e);
-          stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
-          setDs({ ...stateRef.current });
-        } finally {
-          setConnectingWallet(null);
-        }
-        return;
-      }
-      if (!openWalletDeepLink("backpack")) {
-        stateRef.current.notification = {
-          text: "HTTPS NEEDED. DEPLOY TO HTTPS OR ADD VITE_WALLET_DAPP_URL=https://your-url.railway.app",
-          life: 300,
-        };
-        setDs({ ...stateRef.current });
-      }
+    if (isMobile || isNative) {
+      setConnectingWallet("backpack");
+      stateRef.current.notification = { text: "OPENING BACKPACK WALLET...", life: 200 };
+      setDs({ ...stateRef.current });
+      setTimeout(() => setConnectingWallet(null), 3000);
+      openWalletDeepLink("backpack");
       return;
     }
     stateRef.current.notification = { text: "BACKPACK NOT INSTALLED - GET IT AT BACKPACK.APP", life: 150 };
     setDs({ ...stateRef.current });
   };
-
-  // â”€â”€ Connect to Solana Wallet (Phantom) - REAL CONNECTION, NO BLOCKING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectWeb3 = useCallback(async () => {
     if (isMobilePlatform()) {
       // Try injected provider first — Phantom/Solflare inject into Android WebViews
@@ -1629,11 +1560,10 @@ export default function FarmingGame() {
                       const canvas = canvasRef.current;
                       if (!canvas) return;
                       const p = s.player;
-                      const wx = (p.x * s.zoom - s.cameraX);
-                      const wy = (p.y * s.zoom - s.cameraY);
-                      const scaleX = canvas.width / canvas.clientWidth;
-                      const scaleY = canvas.height / canvas.clientHeight;
-                      stateRef.current = handleToolAction(stateRef.current, wx * scaleX, wy * scaleY);
+                      // Convert player world pos → canvas screen coords correctly
+                      const screenX = p.x * s.zoom - s.cameraX;
+                      const screenY = p.y * s.zoom - s.cameraY;
+                      stateRef.current = handleToolAction(stateRef.current, screenX, screenY);
                       setDs({ ...stateRef.current });
                       AudioManager.playSFX("click");
                     }}
@@ -2393,6 +2323,7 @@ export default function FarmingGame() {
     </div>
   );
 }
+
 
 
 

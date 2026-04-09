@@ -1018,7 +1018,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       // Unity-style plant burst
       for (let i = 0; i < 8; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
       for (let i = 0; i < 4; i++) spawnVFX(s, cx + (Math.random()-0.5)*20, cy + (Math.random()-0.5)*15, "sparkle");
-      spawnVFX(s, cx, cx, "flash");
+      spawnVFX(s, cx, cy, "flash");
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
       bumpQuestProgress(s, "plant");
       s.plotJuice = { plotId: plot.id, until: s.time + 360 };

@@ -83,22 +83,25 @@ export function openWalletDeepLink(walletType: "phantom" | "solflare" | "backpac
   // Check if we're in a native Capacitor app
   const isNative = !!(window as any).Capacitor?.isNativePlatform?.();
   
-  if (!isNative) {
-    // Mobile web - open in browser-based wallet instead of deep link
-    // This works on mobile web with Phantom/Solflare browser injection
-    if (walletType === "phantom" && httpsUrl) {
-      window.location.href = `https://phantom.app/connect?app_url=${encodeURIComponent(httpsUrl)}&redirect_link=${encodeURIComponent(window.location.origin + '/?callback=phantom')}`;
-      return true;
-    }
-    if (walletType === "solflare" && httpsUrl) {
-      window.location.href = `https://solflare.com/connect?url=${encodeURIComponent(httpsUrl)}`;
-      return true;
-    }
-    // Try generic approach for other wallets
+  if (isNative) {
+    // Native Capacitor: use window.location.href to trigger intent
+    // Phantom Universal Link works on Android via intent
     window.location.href = deeplink;
     return true;
   }
 
+  // Mobile web browser
+  if (walletType === "phantom") {
+    // Try phantom:// scheme first (installed app), fallback to universal link
+    const phantomScheme = `phantom://ul/v1/connect?app_url=${encodeURIComponent(httpsUrl || "https://lifetopia.io")}&redirect_link=${encodeURIComponent(window.location.origin + "/?callback=phantom")}&cluster=mainnet-beta`;
+    window.location.href = phantomScheme;
+    return true;
+  }
+  if (walletType === "solflare" && httpsUrl) {
+    window.location.href = `https://solflare.com/ul/v1/connect?app_url=${encodeURIComponent(httpsUrl)}&redirect_link=${encodeURIComponent(window.location.origin + "/?callback=solflare")}&cluster=mainnet-beta`;
+    return true;
+  }
+  // Generic fallback
   window.location.href = deeplink;
   return true;
 }
@@ -143,25 +146,24 @@ export function setupVisibilityRestart(onRestart: () => void): () => void {
 /** Build the correct native deep link URL for each wallet */
 function buildWalletDeeplink(walletType: string, dappHttpsUrl: string | null): string {
   if (walletType === "phantom") {
-    // Native Phantom connect — opens Phantom APP directly
-    // app_url: the dApp URL Phantom should show in its approval screen
-    // redirect_link: where Phantom redirects after user approves/rejects
-    // We use lifetopiaconnect:// custom scheme for our app to catch the callback
-    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    // Phantom Universal Link (v1) — correct format for Phantom mobile app
+    // https://docs.phantom.app/phantom-deeplinks/provider-methods/connect
+    const dapp = encodeURIComponent(dappHttpsUrl || "https://lifetopia.io");
     const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
-    return `phantom://v1/connect?app_url=${dapp}&redirect_link=${redirect}`;
+    const cluster = "mainnet-beta";
+    return `https://phantom.app/ul/v1/connect?app_url=${dapp}&dapp_encryption_public_key=&redirect_link=${redirect}&cluster=${cluster}`;
   }
 
   if (walletType === "solflare") {
-    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    const dapp = encodeURIComponent(dappHttpsUrl || "https://lifetopia.io");
     const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
-    return `solflare://open?url=${dapp}&redirect=${redirect}`;
+    return `https://solflare.com/ul/v1/connect?app_url=${dapp}&redirect_link=${redirect}&cluster=mainnet-beta`;
   }
 
   if (walletType === "backpack") {
-    const dapp = encodeURIComponent(dappHttpsUrl || "lifetopiaconnect://");
+    const dapp = encodeURIComponent(dappHttpsUrl || "https://lifetopia.io");
     const redirect = encodeURIComponent("lifetopiaconnect://wallet-callback");
-    return `backpack://transfer?url=${dapp}&redirect=${redirect}`;
+    return `https://backpack.app/ul/v1/connect?app_url=${dapp}&redirect_link=${redirect}`;
   }
 
   if (walletType === "trust") {

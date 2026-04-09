@@ -136,6 +136,10 @@ export function renderGame(
   // Clear screen with dark background
   ctx.fillStyle = "#1a1a2e";
   ctx.fillRect(0, 0, W, H);
+  // Hard reset any leaked state from previous frame
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.filter = "none";
 
   ctx.save();
   ctx.translate(-camX + sx, -camY + sy);
@@ -176,6 +180,13 @@ export function renderGame(
   // FOREGROUND PARALLAX
   drawParallaxForeground(ctx, state);
 
+  // AVATAR WORLD AMBIENT — world-space effects (disabled if causing issues)
+  if (state.currentMap !== "city") {
+    drawBirds(ctx, state);
+    drawGroundMist(ctx, state);
+    drawAmbientFireflies(ctx, state);
+  }
+
   drawVFX(ctx, state);
   drawDamageNumbers(ctx, state);
   if (!state.activePanel) drawMapLabels(ctx, state);
@@ -187,6 +198,9 @@ export function renderGame(
   ctx.restore();
 
   // HUD & UI OVERLAYS (Drawn in screenspace)
+  // Day/night cycle tint — applied over the whole screen
+  drawDayCycleTint(ctx, state, W, H);
+
   if (state.currentMap === "garden" && state.gardenActivePlayers >= 0) {
     drawGardenPlayersHud(ctx, state, W, H);
   }
@@ -783,11 +797,12 @@ function drawFarmPlots(
       // Nutrient 'Infusion' Glow
       if (plot.fertilized) {
         ctx.save();
-        ctx.globalCompositeOperation = "lighter";
         const g = ctx.createRadialGradient(cx, drawY + cellH/2, 0, cx, drawY + cellH/2, cellW/2);
         g.addColorStop(0, "rgba(50, 255, 100, 0.08)");
         g.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(cx, drawY + cellH/2, cellW/2, cellH/2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -833,7 +848,6 @@ function drawFarmPlots(
     // 3. NFT Boost Visual — Green Glow (GDD 5 Bonus)
     if (state.nftBoostActive) {
       ctx.save();
-      ctx.globalCompositeOperation = "lighter";
       const glow = ctx.createRadialGradient(cx, by - 10, 0, cx, by - 10, cellW * 0.45);
       glow.addColorStop(0, "rgba(100, 255, 100, 0.2)");
       glow.addColorStop(1, "rgba(0, 0, 0, 0)");
@@ -962,7 +976,8 @@ function drawFarmPlots(
       
       // Draw plant in clean isolated block
       ctx.save();
-      ctx.translate(cx, by);
+      // Remove redundant cx,by translate here because it's already translated at line 961
+      // Just keep it centered at (0,0) relative to the parent transform
       if (currentStage === 0) {
         ctx.fillStyle = "#4E2B0E";
         ctx.beginPath(); ctx.ellipse(0, 0, 11, 6, 0, 0, Math.PI * 2); ctx.fill();
@@ -1034,18 +1049,26 @@ function drawFarmPlots(
           ctx.beginPath(); ctx.arc(Math.cos(ang4)*imageSize*0.45, Math.sin(ang4)*imageSize*0.45-imageSize*0.5, 2, 0, Math.PI*2); ctx.fill();
         }
         ctx.globalAlpha = 1;
+      }
       ctx.restore(); // end plant block
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const bounce = Math.abs(Math.sin(now / 300)) * 4;
-      ctx.globalAlpha = 0.9 + Math.sin(now / 200) * 0.1;
-      ctx.fillStyle = "#000";
-      ctx.fillText("READY!", cx + 1, drawY - 24 - bounce + 1);
-      ctx.fillStyle = "#FFD700";
-      ctx.fillText("READY!", cx, drawY - 24 - bounce);
-    }
 
-    ctx.restore();
+      // READY! label drawn in world space (outside the scaled plant block)
+      if (crop.ready) {
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const bounce = Math.abs(Math.sin(now / 300)) * 4;
+        ctx.globalAlpha = 0.9 + Math.sin(now / 200) * 0.1;
+        ctx.font = "bold 9px monospace";
+        ctx.fillStyle = "#000";
+        ctx.fillText("READY!", 1, -80 - bounce + 1); 
+        ctx.fillStyle = "#FFD700";
+        ctx.fillText("READY!", 0, -80 - bounce);
+        ctx.restore();
+      }
+
+    ctx.restore(); // matches ctx.save() at line 960
+    ctx.restore(); // matches ctx.save() at line 845
   }
 }
 
@@ -1410,15 +1433,14 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
     outfit,
   } = state.player;
   
-  // Professional Character Shadow
-  drawShadow(ctx, x, y, 14);
-
   const isWalking =
-    (moving || targetX !== null) &&
-    !state.notification?.text.includes("LEVEL UP");
+    (moving || targetX !== null);
   const isJumping = jumpY && jumpY < -5;
   const walkSpeed = running ? 80 : 130;
   const walkCycle = (state.time / walkSpeed) % 4;
+
+  // Character shadow is drawn at world (x,y)
+  drawShadow(ctx, x, y, 14);
 
   let sprite: HTMLImageElement | null = null;
 
@@ -1525,22 +1547,11 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
   }
 
   ctx.save();
-  ctx.translate(x, y);
-
-  // Shadow
-  ctx.save();
-  ctx.scale(1.4, 0.35);
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  ctx.beginPath();
-  ctx.arc(0, 0, 16, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  const jF = state.player.jumpFlip || 0;
-  const jumpAmt = jumpY ? Math.abs(jumpY) * 0.15 : 0;
-  
-  ctx.save();
   ctx.translate(x, y + jumpY);
+  
+  // Rotate during jump flip
+  const jF = state.player.jumpFlip || 0;
+  if (jF) ctx.rotate((jF * Math.PI) / 180);
   
   // Character Customization: Outfit Presets via Hue-Rotate
   const outfitHues: Record<string, string> = {
@@ -1602,7 +1613,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
     state.fishingRareFlash
   ) {
     ctx.save();
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = 'bold 7px "Press Start 2P", monospace';
     ctx.textAlign = "center";
     const col =
       state.fishingCatchHold.tier === 2
@@ -1612,37 +1623,41 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
           : "#FFF";
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 3;
-    ctx.strokeText(state.fishingRareFlash, x, y - 92);
+    // Drawn at (0,0) relative to translated player
+    ctx.strokeText(state.fishingRareFlash, 0, -92);
     ctx.fillStyle = col;
-    ctx.fillText(state.fishingRareFlash, x, y - 92);
+    ctx.fillText(state.fishingRareFlash, 0, -92);
     ctx.restore();
   }
 
-  ctx.restore();
+  ctx.restore(); // Restore S1 (translate x, y + jumpY)
 
   // ── SOCIAL EMOTE BUBBLES ──
   if (state.player.emoteBubble && state.time < state.player.emoteBubbleUntil) {
     ctx.save();
+    // Emote bubble above player head
     const bx = x, by = y - 55 + (state.player.jumpY || 0) + Math.sin(state.time / 200) * 4;
+    ctx.translate(bx, by);
+    
     ctx.fillStyle = "#FFFFFF";
     ctx.strokeStyle = "#4D2D18";
     ctx.lineWidth = 2;
     // Bubble
     ctx.beginPath();
-    ctx.roundRect(bx - 18, by - 24, 36, 30, 8);
+    ctx.roundRect(-18, -24, 36, 30, 8);
     ctx.fill();
     ctx.stroke();
     // Anchor
     ctx.beginPath();
-    ctx.moveTo(bx - 6, by + 6);
-    ctx.lineTo(bx, by + 12);
-    ctx.lineTo(bx + 6, by + 6);
+    ctx.moveTo(-6, 6);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(6, 6);
     ctx.fill();
     ctx.stroke();
     // Emoji
     ctx.font = "20px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(state.player.emoteBubble, bx, by + 2);
+    ctx.fillText(state.player.emoteBubble, 0, 2);
     ctx.restore();
   }
 }
@@ -1672,7 +1687,7 @@ function drawVFX(ctx: CanvasRenderingContext2D, state: GameState) {
     
     // Additive blending for glowy "shader" feel if it's a light-based particle
     const isLight = p.type === "sparkle" || p.type === "flash" || p.type === "coin" || p.type === "slash";
-    if (isLight) ctx.globalCompositeOperation = 'lighter';
+    if (isLight) ctx.globalAlpha = alpha * 0.9; // just slightly more opaque for glow feel, no composite
     
     ctx.globalAlpha = alpha;
 
@@ -1826,8 +1841,6 @@ function drawVFX(ctx: CanvasRenderingContext2D, state: GameState) {
       ctx.fillStyle = p.color;
       ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
     }
-
-    ctx.restore();
 
     ctx.restore();
   }
@@ -2268,5 +2281,214 @@ function drawWeatherParticles(ctx: CanvasRenderingContext2D, state: GameState, W
     }
   }
   
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AVATAR WORLD AMBIENT EFFECTS
+// ═══════════════════════════════════════════════════════════════
+
+// Firefly/sparkle particles that float around the world
+const fireflies: Array<{
+  x: number; y: number; vx: number; vy: number;
+  phase: number; size: number; color: string; life: number; maxLife: number;
+}> = [];
+
+// Birds flying across the sky
+const birds: Array<{
+  x: number; y: number; vx: number; vy: number;
+  flapPhase: number; flapSpeed: number; size: number; opacity: number;
+}> = [];
+
+let _lastBirdSpawn = 0;
+
+function drawAmbientFireflies(ctx: CanvasRenderingContext2D, state: GameState) {
+  const { currentMap, time, cameraX, cameraY } = state;
+  // Only on home/garden/suburban
+  if (currentMap !== "home" && currentMap !== "garden" && currentMap !== "suburban") return;
+
+  const { w, h } = MAP_SIZES[currentMap];
+
+  // Spawn new fireflies
+  if (fireflies.length < 35 && Math.random() < 0.08) {
+    const colors = ["#A8FF78", "#78FFD6", "#FFE878", "#B8FFAA", "#78E8FF"];
+    fireflies.push({
+      x: Math.random() * w,
+      y: 80 + Math.random() * (h - 160),
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.3,
+      phase: Math.random() * Math.PI * 2,
+      size: 1.5 + Math.random() * 2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      life: 0,
+      maxLife: 4000 + Math.random() * 6000,
+    });
+  }
+
+  ctx.save();
+  for (let i = fireflies.length - 1; i >= 0; i--) {
+    const f = fireflies[i];
+    f.life += 16;
+    f.x += f.vx + Math.sin(time / 1800 + f.phase) * 0.25;
+    f.y += f.vy + Math.cos(time / 2200 + f.phase * 1.3) * 0.18;
+
+    // Wrap around map
+    if (f.x < 0) f.x = w;
+    if (f.x > w) f.x = 0;
+    if (f.y < 0) f.y = h;
+    if (f.y > h) f.y = 0;
+
+    if (f.life > f.maxLife) { fireflies.splice(i, 1); continue; }
+
+    const lifePct = f.life / f.maxLife;
+    const fadeIn = Math.min(1, lifePct * 8);
+    const fadeOut = Math.min(1, (1 - lifePct) * 8);
+    const pulse = 0.5 + Math.sin(time / 300 + f.phase) * 0.5;
+    const alpha = fadeIn * fadeOut * pulse * 0.85;
+
+    // Glow halo
+    const hexToRgb = (hex: string) => {
+      const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+      return `${r},${g},${b}`;
+    };
+    const rgb = hexToRgb(f.color);
+    const grd = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.size * 4);
+    grd.addColorStop(0, `rgba(${rgb},${alpha})`);
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.globalAlpha = alpha * 0.4;
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.size * 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core dot
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = f.color;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawDayCycleTint(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
+  const { time, currentMap } = state;
+  // Slow 8-minute cycle: dawn → day → dusk → night → dawn
+  const cycleMs = 480000;
+  const phase = (time % cycleMs) / cycleMs; // 0..1
+
+  let r = 0, g = 0, b = 0, a = 0;
+  if (phase < 0.15) {
+    // Dawn: warm orange tint
+    const t = phase / 0.15;
+    r = 255; g = 160; b = 80; a = 0.05 * Math.sin(t * Math.PI);
+  } else if (phase < 0.45) {
+    // Day: no tint
+    a = 0;
+  } else if (phase < 0.6) {
+    // Dusk: golden hour
+    const t = (phase - 0.45) / 0.15;
+    r = 255; g = 120; b = 40; a = 0.06 * Math.sin(t * Math.PI);
+  } else if (phase < 0.75) {
+    // Twilight: purple
+    const t = (phase - 0.6) / 0.15;
+    r = 80; g = 40; b = 160; a = 0.08 * t;
+  } else if (phase < 0.9) {
+    // Night: deep blue
+    r = 10; g = 20; b = 80; a = 0.12;
+  } else {
+    // Pre-dawn fade out
+    const t = (phase - 0.9) / 0.1;
+    r = 10; g = 20; b = 80; a = 0.12 * (1 - t);
+  }
+
+  if (a < 0.005) return;
+
+  // Only apply on outdoor maps
+  if (currentMap !== "home" && currentMap !== "garden" && currentMap !== "suburban" && currentMap !== "fishing") return;
+
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function drawBirds(ctx: CanvasRenderingContext2D, state: GameState) {
+  const { time, currentMap, cameraX, cameraY } = state;
+  const { w } = MAP_SIZES[currentMap];
+
+  // Spawn birds occasionally
+  if (time - _lastBirdSpawn > 8000 + Math.random() * 12000 && birds.length < 6) {
+    _lastBirdSpawn = time;
+    const flock = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < flock; i++) {
+      const goRight = Math.random() > 0.5;
+      birds.push({
+        x: goRight ? -60 : w + 60,
+        y: 30 + Math.random() * 120,
+        vx: goRight ? 0.8 + Math.random() * 0.6 : -(0.8 + Math.random() * 0.6),
+        vy: (Math.random() - 0.5) * 0.15,
+        flapPhase: Math.random() * Math.PI * 2 + i * 0.8,
+        flapSpeed: 0.08 + Math.random() * 0.06,
+        size: 4 + Math.random() * 3,
+        opacity: 0.5 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  ctx.save();
+  for (let i = birds.length - 1; i >= 0; i--) {
+    const b = birds[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    b.flapPhase += b.flapSpeed;
+
+    // Remove when off map
+    if (b.x < -100 || b.x > w + 100) { birds.splice(i, 1); continue; }
+
+    const flap = Math.sin(b.flapPhase) * b.size * 0.8;
+    ctx.globalAlpha = b.opacity;
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
+
+    // Simple V-wing bird shape
+    ctx.beginPath();
+    ctx.moveTo(b.x - b.size * 1.4, b.y - flap);
+    ctx.quadraticCurveTo(b.x - b.size * 0.5, b.y + flap * 0.3, b.x, b.y);
+    ctx.quadraticCurveTo(b.x + b.size * 0.5, b.y + flap * 0.3, b.x + b.size * 1.4, b.y - flap);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawGroundMist(ctx: CanvasRenderingContext2D, state: GameState) {
+  const { currentMap, time, cameraX, cameraY } = state;
+  if (currentMap !== "home") return;
+
+  const { w, h } = MAP_SIZES[currentMap];
+  const mistY = h - 80;
+
+  ctx.save();
+  // Slow drifting mist bands
+  for (let i = 0; i < 4; i++) {
+    const drift = (time * 0.015 * (1 + i * 0.3) + i * 300) % (w + 400) - 200;
+    const bandW = 300 + i * 80;
+    const bandH = 18 + i * 6;
+    const alpha = 0.06 + i * 0.02;
+
+    const grd = ctx.createRadialGradient(drift + bandW / 2, mistY, 0, drift + bandW / 2, mistY, bandW / 2);
+    grd.addColorStop(0, `rgba(220,240,255,${alpha})`);
+    grd.addColorStop(1, "rgba(220,240,255,0)");
+
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.ellipse(drift + bandW / 2, mistY, bandW / 2, bandH, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
