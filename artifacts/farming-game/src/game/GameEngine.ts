@@ -784,10 +784,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
   // [DEBUG] Plant/Wallet flow: log every step for Capacitor Inspect
   console.log(`[performPlotAction] START tool=${tool} plotIdx=${plotIdx} player.x=${Math.round(s.player.x)} player.y=${Math.round(s.player.y)} actionTimer=${s.player.actionTimer} wallet=${s.player.walletAddress?.slice(0,8) ?? "none"}`);
 
-  // Subtle character feedback VFX — small sparkle burst on player when farming
-  for (let i = 0; i < 4; i++) {
-    spawnVFX(s, s.player.x + (Math.random() - 0.5) * 16, s.player.y - 14 + (Math.random() - 0.5) * 10, "sparkle");
-  }
+  // Subtle dust on movement (already handled in updatePlayerAnim)
 
   // AXE: Clear crops (dead or alive) OR untill/reset the soil
   if (tool === "axe" || tool === "axe-large") {
@@ -853,11 +850,9 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
         });
       }
 
-      // Unity-style harvest burst
-      for (let i = 0; i < 10; i++) spawnVFX(s, cx + (Math.random()-0.5)*45, cy - 10 + (Math.random()-0.5)*30, "harvest");
-      for (let i = 0; i < 6; i++) spawnVFX(s, cx + (Math.random()-0.5)*30, cy - 20 + (Math.random()-0.5)*20, "sparkle");
+      // Subtle harvest feedback
+      spawnVFX(s, cx, cy - 20, "plant");
       spawnVFX(s, cx, cy - 20, "coin");
-      spawnVFX(s, cx, cy, "flash");
       spawnText(s, cx, cy - 56, `+${gold} GOLD`, "#FFD700", -2.4);
 
       bumpQuestProgress(s, "harvest");
@@ -894,10 +889,8 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       attachFarmingEngine(s, plot, tool);
       s.shake = 10;
       AudioManager.playSFX("hoe");
-      // Unity-style burst VFX on till
-      for (let i = 0; i < 12; i++) spawnVFX(s, cx + (Math.random()-0.5)*50, cy + (Math.random()-0.5)*40, "dust");
-      for (let i = 0; i < 6; i++) spawnVFX(s, cx + (Math.random()-0.5)*30, cy + (Math.random()-0.5)*20, "sparkle");
-      spawnVFX(s, cx, cy, "flash");
+      // Earth tilling feedback
+      for (let i = 0; i < 8; i++) spawnVFX(s, cx + (Math.random()-0.5)*50, cy + (Math.random()-0.5)*40, "dust");
       s.notification = { text: "SOIL TILLED!", life: 80 };
     } else if (plot.crop) {
       if (plot.crop.dead) {
@@ -952,8 +945,8 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       s.player.action = "fertilizer" as any;
       s.player.actionTimer = 30;
       attachFarmingEngine(s, plot, "fertilizer");
-      for (let i = 0; i < 10; i++) spawnVFX(s, cx + (Math.random()-0.5)*40, cy + (Math.random()-0.5)*30, "sparkle");
-      spawnVFX(s, cx, cy, "flash");
+      // Fertilizing feedback
+      spawnVFX(s, cx, cy, "dust");
       AudioManager.playSFX("fertilize");
       s.shake = 5;
       s.notification = { text: "GROWTH BOOSTED!", life: 80 };
@@ -1015,10 +1008,9 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       const cdMap: Record<string, number> = { "wheat-seed": 50, "tomato-seed": 50, "carrot-seed": 50, "pumpkin-seed": 50 };
       s.seedCooldowns[tool] = cdMap[tool] || 50;
 
-      // Unity-style plant burst
-      for (let i = 0; i < 8; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
-      for (let i = 0; i < 4; i++) spawnVFX(s, cx + (Math.random()-0.5)*20, cy + (Math.random()-0.5)*15, "sparkle");
-      spawnVFX(s, cx, cy, "flash");
+      // Planting feedback
+      for (let i = 0; i < 6; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
+      spawnVFX(s, cx, cy, "dust");
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
       bumpQuestProgress(s, "plant");
       s.plotJuice = { plotId: plot.id, until: s.time + 360 };

@@ -1701,45 +1701,23 @@ function drawVFX(ctx: CanvasRenderingContext2D, state: GameState) {
       ctx.fillRect(p.x - ps + 1, p.y - ps + 1, ps / 2, ps / 2);
 
     } else if (p.type === "sparkle") {
-      // Bloom sparkle - Cross + Glow
-      const ps = s * 1.2;
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - 0.5, p.y - ps, 1, ps * 2);
-      ctx.fillRect(p.x - ps, p.y - 0.5, ps * 2, 1);
-      // Outer glow
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, ps * 2.5);
-      g.addColorStop(0, p.color);
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = g;
+      // Subtle white glint instead of flashy yellow
+      const ps = s * 0.4;
+      ctx.fillStyle = "#FFF";
       ctx.beginPath();
-      ctx.arc(p.x, p.y, ps * 2, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, ps, 0, Math.PI * 2);
       ctx.fill();
 
     } else if (p.type === "flash") {
-      // Unity-like Impact Flash (Expanding Ring + Star)
-      const prog = 1 - alpha;
-      const radius = s * (1 + prog * 4);
-      ctx.strokeStyle = p.color;
-      ctx.lineWidth = 2 * (1 - prog);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      ctx.fillStyle = "#FFF";
-      ctx.beginPath();
-      const stW = s * (1 - prog);
-      ctx.moveTo(p.x - stW * 3, p.y);
-      ctx.lineTo(p.x, p.y - stW * 0.5);
-      ctx.lineTo(p.x + stW * 3, p.y);
-      ctx.lineTo(p.x, p.y + stW * 0.5);
-      ctx.fill();
+      // Removed - was too flashy
 
     } else if (p.type === "shockwave") {
+      // Subtle ring, no glow
       const prog = 1 - alpha;
-      ctx.strokeStyle = "rgba(255,255,255," + (alpha * 0.8) + ")";
-      ctx.lineWidth = 4 * (1 - prog);
+      ctx.strokeStyle = "rgba(255,255,255," + (alpha * 0.4) + ")";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y + 5, 40 * prog, 20 * prog, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y + 5, 30 * prog, 15 * prog, 0, 0, Math.PI * 2);
       ctx.stroke();
 
     } else if (p.type === "slash") {
@@ -1754,58 +1732,40 @@ function drawVFX(ctx: CanvasRenderingContext2D, state: GameState) {
       else if (facing === "up") ctx.rotate(Math.PI);
       else ctx.rotate(0); // down = no rotation
       ctx.strokeStyle = p.color;
-      ctx.lineWidth = s * (1 - prog) * 1.8;
+      ctx.lineWidth = s * (1 - prog) * 1.5;
       ctx.lineCap = "round";
       // Draw arc sweeping away from player (shoots outward)
       ctx.beginPath();
-      ctx.arc(0, 0, s * 2.8, -Math.PI / 2.2, Math.PI / 2.2);
-      ctx.stroke();
-      // Outer glow ring
-      ctx.globalAlpha = alpha * 0.35;
-      ctx.strokeStyle = "#FFF";
-      ctx.lineWidth = s * 0.6;
-      ctx.beginPath();
-      ctx.arc(0, 0, s * 2.8, -Math.PI / 2.2, Math.PI / 2.2);
+      ctx.arc(0, 0, s * 2.5, -Math.PI / 3, Math.PI / 3);
       ctx.stroke();
       ctx.restore();
 
     } else if (p.type === "drop") {
-      // More realistic water splash
-      const ps = s * 0.8;
+      // Realistic 2D Spritelike Water Drop
+      const ps = s * 0.6;
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, ps, 0, Math.PI * 2);
-      ctx.fill();
-      // Highlight
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.beginPath();
-      ctx.arc(p.x - ps * 0.3, p.y - ps * 0.3, ps * 0.3, 0, Math.PI * 2);
+      // Tear shape
+      ctx.moveTo(p.x, p.y - ps * 1.2);
+      ctx.quadraticCurveTo(p.x + ps, p.y - ps, p.x + ps, p.y + ps);
+      ctx.quadraticCurveTo(p.x, p.y + ps * 1.2, p.x - ps, p.y + ps);
+      ctx.quadraticCurveTo(p.x - ps, p.y - ps, p.x, p.y - ps * 1.2);
       ctx.fill();
 
     } else if (p.type === "dust") {
       // Soft dust cloud
-      const ps = s * 1.5;
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, ps);
-      g.addColorStop(0, p.color);
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g;
+      const ps = s * 1.2;
+      ctx.fillStyle = "rgba(141, 110, 99, " + (alpha * 0.4) + ")";
       ctx.beginPath();
       ctx.arc(p.x, p.y, ps, 0, Math.PI * 2);
       ctx.fill();
 
     } else if (p.type === "water") {
-      // Fluid splash: expanding and fading blue circle with white center
-      const prog = 1 - alpha;
-      const sSize = s * (0.8 + prog * 1.5);
+      // Simplified water splash using tear drops
+      const ps = s * 0.5;
       ctx.fillStyle = "#A3E4F8";
       ctx.beginPath();
-      ctx.arc(p.x, p.y, sSize, 0, Math.PI * 2);
-      ctx.fill();
-      // Highlight center
-      ctx.fillStyle = "#FFF";
-      ctx.globalAlpha = alpha * 0.7;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, sSize * 0.4, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y, ps * 1.5, ps, 0, 0, Math.PI * 2);
       ctx.fill();
 
     } else if (p.type === "leaf" || p.type === "petal") {
