@@ -254,10 +254,10 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
     ctx.clearRect(0, 0, W, H);
     frameRef.current++;
 
-    // Spawn particles
-    if (frameRef.current % 3 === 0) particlesRef.current.push(spawnLeaf(cx, cy, W, H));
-    if (frameRef.current % 4 === 0) particlesRef.current.push(spawnSparkle(cx, cy, W, H));
-    if (frameRef.current % 6 === 0) particlesRef.current.push(spawnGlow(cx, cy, W, H));
+    // Spawn particles — reduced frequency
+    if (frameRef.current % 12 === 0) particlesRef.current.push(spawnLeaf(cx, cy, W, H));
+    if (frameRef.current % 16 === 0) particlesRef.current.push(spawnSparkle(cx, cy, W, H));
+    if (frameRef.current % 24 === 0) particlesRef.current.push(spawnGlow(cx, cy, W, H));
 
     // Cap
     if (particlesRef.current.length > 180) particlesRef.current.splice(0, 10);
@@ -341,19 +341,19 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
         }
         @keyframes splashLogoFloat {
           0%,100% { transform: translate(-50%,-50%) translateY(0px); }
-          50% { transform: translate(-50%,-50%) translateY(-10px); }
+          50% { transform: translate(-50%,-50%) translateY(0px); }
         }
         @keyframes splashFadeUp {
-          from { opacity:0; transform:translateX(-50%) translateY(14px); }
+          from { opacity:0; transform:translateX(-50%) translateY(0px); }
           to   { opacity:1; transform:translateX(-50%) translateY(0); }
         }
         @keyframes splashBtnFadeUp {
-          from { opacity:0; transform:translateX(-50%) translateY(18px); }
+          from { opacity:0; transform:translateX(-50%) translateY(0px); }
           to   { opacity:1; transform:translateX(-50%) translateY(0); }
         }
         @keyframes splashBtnBob {
           0%,100% { transform:translateX(-50%) translateY(0); }
-          50%     { transform:translateX(-50%) translateY(-5px); }
+          50%     { transform:translateX(-50%) translateY(0); }
         }
       `}</style>
 
@@ -362,7 +362,6 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
         position: "absolute", inset: 0,
         backgroundImage: "url(/home_1774349990715.jpg)",
         backgroundSize: "cover", backgroundPosition: "center",
-        animation: "splashPanZoom 22s ease-in-out infinite alternate",
         willChange: "transform", zIndex: 1,
       }} />
 
@@ -394,7 +393,6 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
           filter: "drop-shadow(0 16px 40px rgba(0,0,0,0.9))",
           zIndex: 10,
           pointerEvents: "none",
-          animation: "splashLogoFloat 4s ease-in-out infinite",
           transform: "translate(-50%, -50%)",
         }}
       />

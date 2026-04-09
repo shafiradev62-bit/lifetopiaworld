@@ -979,13 +979,14 @@ function drawFarmPlots(
       // Remove redundant cx,by translate here because it's already translated at line 961
       // Just keep it centered at (0,0) relative to the parent transform
       if (currentStage === 0) {
-        ctx.fillStyle = "#4E2B0E";
-        ctx.beginPath(); ctx.ellipse(0, 0, 11, 6, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#6B3A1F";
-        ctx.beginPath(); ctx.ellipse(-3, -1, 4, 2, -0.3, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(4, 1, 3, 1.5, 0.2, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#C8A96E";
-        ctx.beginPath(); ctx.ellipse(0, -3, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+        // Seed mound/packet visual - make it larger and more distinct
+        ctx.fillStyle = "#5D4037"; // Rich brown soil mound
+        ctx.beginPath(); ctx.ellipse(0, 0, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#8D6E63";
+        ctx.beginPath(); ctx.ellipse(-4, -2, 6, 3, -0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#FFD700"; // Golden seed speckles for visibility
+        ctx.beginPath(); ctx.arc(0, -4, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(4, -2, 1.5, 0, Math.PI * 2); ctx.fill();
       } else if (currentStage === 1) {
         const sway1 = Math.sin(now / 900 + plot.gridX * 1.3) * 0.035;
         ctx.fillStyle = "#4E2B0E";

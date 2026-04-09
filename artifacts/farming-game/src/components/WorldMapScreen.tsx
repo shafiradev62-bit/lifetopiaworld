@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { MapType } from "../game/Game";
 
 interface Props {
@@ -71,11 +71,14 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
 
   useEffect(() => {
     const vw = window.innerWidth, vh = window.innerHeight;
-    const sc = Math.max(vw / MAP_W, vh / MAP_H) * 1.8;
-    const ox = clamp((vw - MAP_W * sc) / 2, (vh - MAP_H * sc) / 2, sc);
-    setScale(sc); setOffset(ox);
-    setRenderState({ ox: ox.x, oy: ox.y, sc });
-    offsetRef.current = ox; scaleRef.current = sc;
+    // Calculate scale to fit the entire 1600x900 map within the viewport
+    const sc = Math.min(vw / MAP_W, vh / MAP_H);
+    const ox = (vw - MAP_W * sc) / 2;
+    const oy = (vh - MAP_H * sc) / 2;
+    const finalOffset = { x: ox, y: oy };
+    setScale(sc); setOffset(finalOffset);
+    setRenderState({ ox, oy, sc });
+    offsetRef.current = finalOffset; scaleRef.current = sc;
   }, []);
 
   const spots = IS_EDITOR ? editorSpots : HOTSPOTS;
@@ -100,67 +103,20 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
-    if (cine) return;
-    if (draggingSpot.current) return;
-    isDragging.current = true; didDrag.current = false;
-    dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+    if (cine || pressedId) return;
+    if (!IS_EDITOR) handleTap(e.clientX, e.clientY);
   };
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (draggingSpot.current) {
-      const ds = draggingSpot.current;
-      const ncx = Math.max(0, Math.min(100, ds.scx + ((e.clientX - ds.smx) / (MAP_W * scaleRef.current)) * 100));
-      const ncy = Math.max(0, Math.min(100, ds.scy + ((e.clientY - ds.smy) / (MAP_H * scaleRef.current)) * 100));
-      setEditorSpots(prev => prev.map(h => h.id === ds.id ? { ...h, cx: ncx, cy: ncy } : h));
-      return;
-    }
-    if (!isDragging.current) return;
-    const dx = e.clientX - dragStart.current.x, dy = e.clientY - dragStart.current.y;
-    if (Math.hypot(dx, dy) > 5) didDrag.current = true;
-    const c = clamp(dragStart.current.ox + dx, dragStart.current.oy + dy, scale);
-    setOffset(c); offsetRef.current = c; setRenderState({ ox: c.x, oy: c.y, sc: scale });
-  };
-  const onMouseUp = (e: React.MouseEvent) => {
-    if (draggingSpot.current) { draggingSpot.current = null; return; }
-    isDragging.current = false;
-    if (!didDrag.current && !IS_EDITOR) handleTap(e.clientX, e.clientY);
-  };
-  const onWheel = (e: React.WheelEvent) => {
-    if (cine) return; e.preventDefault();
-    const newSc = Math.max(0.8, Math.min(4, scale + (e.deltaY > 0 ? -0.15 : 0.15)));
-    const c = clamp(e.clientX - (e.clientX - offset.x) * (newSc / scale), e.clientY - (e.clientY - offset.y) * (newSc / scale), newSc);
-    setScale(newSc); setOffset(c); scaleRef.current = newSc; offsetRef.current = c;
-    setRenderState({ ox: c.x, oy: c.y, sc: newSc });
-  };
+  const onMouseMove = (e: React.MouseEvent) => {};
+  const onMouseUp = (e: React.MouseEvent) => {};
+  const onWheel = (e: React.WheelEvent) => {};
   const onTouchStart = (e: React.TouchEvent) => {
-    if (cine) return; e.preventDefault();
-    if (e.touches.length === 1 && touchIdRef.current === null) {
-      touchIdRef.current = e.touches[0].identifier; isDragging.current = true; didDrag.current = false;
-      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offset.x, oy: offset.y };
-    } else if (e.touches.length === 2) {
-      lastTouchDist.current = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    if (cine || pressedId) return;
+    if (e.touches.length === 1) {
+      handleTap(e.touches[0].clientX, e.touches[0].clientY);
     }
   };
-  const onTouchMove = (e: React.TouchEvent) => {
-    if (cine) return; e.preventDefault();
-    if (e.touches.length === 1 && isDragging.current) {
-      const dx = e.touches[0].clientX - dragStart.current.x, dy = e.touches[0].clientY - dragStart.current.y;
-      if (Math.hypot(dx, dy) > 8) didDrag.current = true;
-      const c = clamp(dragStart.current.ox + dx, dragStart.current.oy + dy, scale);
-      setOffset(c); offsetRef.current = c; setRenderState({ ox: c.x, oy: c.y, sc: scale });
-    } else if (e.touches.length === 2 && lastTouchDist.current !== null) {
-      const nd = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      const ns = Math.max(0.8, Math.min(4, scale * (nd / lastTouchDist.current)));
-      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      const c = clamp(cx - (cx - offset.x) * (ns / scale), cy - (cy - offset.y) * (ns / scale), ns);
-      setScale(ns); setOffset(c); scaleRef.current = ns; offsetRef.current = c;
-      setRenderState({ ox: c.x, oy: c.y, sc: ns }); lastTouchDist.current = nd; didDrag.current = true;
-    }
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    if (cine) return; e.preventDefault();
-    if (!didDrag.current && e.changedTouches.length === 1) handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-    isDragging.current = false; touchIdRef.current = null; lastTouchDist.current = null;
-  };
+  const onTouchMove = (e: React.TouchEvent) => {};
+  const onTouchEnd = (e: React.TouchEvent) => {};
 
   const { ox: curOx, oy: curOy, sc: curSc } = renderState;
 
@@ -172,7 +128,7 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
         position: "absolute", inset: 0, width: "100vw", height: "100vh",
         zIndex: 8000, opacity: visible ? 1 : 0, transition: "opacity 0.35s ease",
         overflow: "hidden", background: "#0a0806",
-        cursor: cine ? "default" : isDragging.current ? "grabbing" : "grab",
+        cursor: "default",
         userSelect: "none", WebkitUserSelect: "none",
       }}
       onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp}
@@ -203,16 +159,16 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
                 pointerEvents: "none",
                 // 3D press effect: scale down + translate down + shrink shadow
                 transform: isPressed
-                  ? "scale(0.91) translateY(3%)"
-                  : "scale(1) translateY(0%)",
+                   ? "scale(0.91) translateY(3%)"
+                   : "scale(1) translateY(0%)",
                 transition: isPressed
-                  ? "transform 0.35s cubic-bezier(0.4,0,0.2,1), filter 0.35s ease"
-                  : "transform 0.55s cubic-bezier(0.34,1.56,0.64,1), filter 0.55s ease",
+                   ? "transform 0.35s cubic-bezier(0.4,0,0.2,1), filter 0.35s ease"
+                   : "transform 0.55s cubic-bezier(0.34,1.56,0.64,1), filter 0.55s ease",
                 filter: isFlash
-                  ? "brightness(3) drop-shadow(0 0 40px #fff)"
-                  : isPressed
-                  ? "drop-shadow(0 1px 3px rgba(0,0,0,0.9)) drop-shadow(0 1px 2px rgba(0,0,0,0.7)) brightness(0.8)"
-                  : "drop-shadow(0 10px 20px rgba(0,0,0,0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
+                   ? "brightness(3) drop-shadow(0 0 40px #fff)"
+                   : isPressed
+                   ? "drop-shadow(0 1px 3px rgba(0,0,0,0.9)) drop-shadow(0 1px 2px rgba(0,0,0,0.7)) brightness(0.8)"
+                   : "drop-shadow(0 10px 20px rgba(0,0,0,0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
                 transformOrigin: "center bottom",
               }}
             >
@@ -271,8 +227,6 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
         })}
       </div>
 
-      {/* Cinematic overlay removed — camera zoom handles transition */}
-
       {/* Hint */}
       {!cine && !IS_EDITOR && (
         <div style={{
@@ -280,7 +234,7 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
           fontFamily: "'Press Start 2P', monospace", fontSize: 8,
           color: "rgba(255,215,0,0.7)", textShadow: "1px 1px 0 #000",
           pointerEvents: "none", whiteSpace: "nowrap",
-        }}>DRAG TO EXPLORE  TAP LOCATION TO TRAVEL</div>
+        }}>TAP A LOCATION TO TRAVEL</div>
       )}
 
       {/* Editor panel */}
