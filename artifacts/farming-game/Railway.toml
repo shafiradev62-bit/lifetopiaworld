@@ -1,0 +1,19 @@
+[build]
+  # Railway will cd into artifacts/farming-game and run the build there
+  builder = "NIXPACKS"
+  # Fallback: if Railway can't detect, use custom commands
+  # nixpacksPlanPath = "" # Railway auto-detects Vite/React from package.json
+
+[deploy]
+  # The pre-built dist folder to serve
+  # Railway serves static files via nginx or built-in static server
+  # We'll use vite preview as fallback
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 3
+
+# Environment variables to set in Railway dashboard (or here for build-time only):
+# VITE_ALCHEMY_API_KEY=your_alchemy_key
+# VITE_TOKEN_MINT_ADDRESS=your_token_mint
+# VITE_WALLET_DAPP_URL=https://your-app.railway.app
+# PORT=3001
+# BASE_PATH=/
