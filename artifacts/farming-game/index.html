@@ -1,12 +1,18 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <!-- PWA / Mobile optimized viewport — no zoom, full screen, safe area support -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta name="apple-mobile-web-app-title" content="Lifetopia" />
     <meta name="theme-color" content="#3E2723" />
     <title>Lifetopia - alpha build</title>
@@ -15,31 +21,61 @@
     <!-- Font: bundled woff2 for offline APK support, Google Fonts as fallback for web -->
     <style>
       @font-face {
-        font-family: 'Press Start 2P';
+        font-family: "Press Start 2P";
         font-style: normal;
         font-weight: 400;
         font-display: swap;
-        src: url('./PressStart2P.woff2') format('woff2'),
-             url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+        src:
+          url("/PressStart2P.woff2") format("woff2"),
+          url("https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2")
+            format("woff2");
       }
     </style>
     <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; -ms-touch-action: none; }
-      * { touch-action: manipulation; }
-      canvas { touch-action: none; }
-      #root { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-      canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        touch-action: none;
+        -ms-touch-action: none;
+      }
+      * {
+        touch-action: manipulation;
+      }
+      canvas {
+        touch-action: none;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
       /* Landscape mobile: ensure full fit */
       @media (orientation: landscape) and (max-height: 500px) {
-        #root { align-items: stretch; }
+        #root {
+          align-items: stretch;
+        }
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script>
-      if (typeof globalThis.global === 'undefined') globalThis.global = globalThis;
+      if (typeof globalThis.global === "undefined")
+        globalThis.global = globalThis;
     </script>
     <script type="module" src="/src/polyfills.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
