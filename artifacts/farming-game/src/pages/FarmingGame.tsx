@@ -22,6 +22,8 @@ import PreFarmTutorial from "../components/tutorial/PreFarmTutorial";
 import {
   transferTokenToUser, getTokenBalance, initializeTokenAccount,
 } from "../game/solanaToken";
+import { mintToWallet, burnFromWallet } from "../game/lfgTreasury";
+import { TOKEN_MINT } from "../game/solanaToken";
 import { AudioManager } from "../game/AudioSystem";
 import {
   signSolanaLogin, signEvmLogin, verifyWalletWithSupabase,
@@ -165,6 +167,9 @@ export default function FarmingGame() {
   const [nfts, setNfts] = useState<string[]>([]);
   const nftsRef = useRef<string[]>([]);
   const lastServerEconomyRef = useRef(snapshotEconomy(stateRef.current.player));
+  const walletProviderRef = useRef<any>(null);
+  const lastSyncedGoldRef = useRef<number>(ds.player.gold);
+  const goldSyncBusyRef = useRef(false);
   const [phantomFound, setPhantomFound] = useState(false);
   const [solflareFound, setSolflareFound] = useState(false);
   const [backpackFound, setBackpackFound] = useState(false);
@@ -261,6 +266,39 @@ export default function FarmingGame() {
   useEffect(() => { walletConnectedRef.current = walletConnected; }, [walletConnected]);
   // Sync activePanel to stateRef so Renderer can suppress canvas overlays
   useEffect(() => { stateRef.current.activePanel = activePanel; }, [activePanel]);
+
+  // â”€â”€ Gold ↔ Blockchain sync (LFG token mint/burn) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  useEffect(() => {
+    if (!walletConnected || !walletAddress || walletAddress.startsWith("guest")) return;
+    if (goldSyncBusyRef.current) return;
+
+    const currentGold = ds.player.gold;
+    const lastGold = lastSyncedGoldRef.current;
+    if (currentGold === lastGold) return;
+
+    goldSyncBusyRef.current = true;
+    const diff = currentGold - lastGold;
+
+    (async () => {
+      try {
+        if (diff > 0) {
+          await mintToWallet(walletAddress, diff);
+        } else if (diff < 0 && walletProviderRef.current) {
+          const { PublicKey } = await import("@solana/web3.js");
+          await burnFromWallet(
+            new PublicKey(walletAddress),
+            walletProviderRef.current,
+            Math.abs(diff),
+          );
+        }
+        lastSyncedGoldRef.current = currentGold;
+      } catch (e) {
+        console.error("[GoldSync] Failed to sync gold:", e);
+      } finally {
+        goldSyncBusyRef.current = false;
+      }
+    })();
+  }, [ds.player.gold, walletConnected, walletAddress]);
 
   // â”€â”€ Register window.startLifetopiaDemo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Use refs so the demo always has fresh closures without re-registering
@@ -667,6 +705,7 @@ export default function FarmingGame() {
 
   const _onWalletConnected = async (addr: string, type: "solana" | "evm", provider: any, label?: string) => {
     // 1. INSTANT UI update â€” no await before this
+    walletProviderRef.current = provider;
     setWalletAddress(addr);
     setWalletType(type);
     setWalletConnected(true);
@@ -721,6 +760,8 @@ export default function FarmingGame() {
     setWalletConnected(false);
     setWalletAddress("");
     setWalletType(null);
+    walletProviderRef.current = null;
+    lastSyncedGoldRef.current = 0;
     localStorage.removeItem("wallet_addr");
     localStorage.removeItem("wallet_type");
     stateRef.current.player.walletAddress = "";
@@ -1520,6 +1561,9 @@ export default function FarmingGame() {
           }}
           currentMap={ds.currentMap}
           playerLevel={ds.player.level}
+          walletType={walletType}
+          onOpenWallet={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
+          onOpenDevnet={() => { setActivePanel("devnet"); AudioManager.playSFX("click"); }}
         />
       )}
 
@@ -1646,6 +1690,40 @@ export default function FarmingGame() {
           <button className="wb gf" onClick={() => { setActivePanel("nft"); AudioManager.playSFX("click"); }}>MY NFTS</button>
           <div ref={goldHudRef} className="wb gf" style={{ color: "#FFD700", padding: "8px 20px", fontSize: 13, border: "2px solid #FFD700", boxShadow: "0 0 10px rgba(255,215,0,0.4)", pointerEvents: "none" }}>GOLD {ds.player.gold}</div>
           <div className="wb gf" style={{ color: "#FFFFFF", padding: "6px 12px", pointerEvents: "none" }}>{ds.player.lifetopiaGold} LFG</div>
+          {/* Devnet status button */}
+          <button
+            className="wb gf"
+            onClick={() => { setActivePanel("devnet"); AudioManager.playSFX("click"); }}
+            style={{
+              background: "linear-gradient(180deg, #CE9E64 0%, #8D5A32 100%)",
+              border: "3px solid #D4AF37",
+              boxShadow: "0 4px 0 #3a2212, 0 0 8px rgba(212,175,55,0.3)",
+              color: "#FFFFFF",
+              fontSize: 7,
+              padding: "8px 14px",
+              letterSpacing: 1,
+            }}
+          >
+            DEVNET
+          </button>
+          {walletType === null && (
+            <button
+              className="wb gf"
+              onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
+              style={{
+                background: "linear-gradient(180deg,#ab9ff2,#512da8)",
+                border: "3px solid #ab9ff2",
+                boxShadow: "0 4px 0 #2a1654, 0 0 8px rgba(171,159,242,0.4)",
+                color: "#FFFFFF",
+                fontSize: 7,
+                padding: "8px 14px",
+                letterSpacing: 1,
+                animation: "walletPulse 2s infinite",
+              }}
+            >
+              CONNECT WALLET
+            </button>
+          )}
           <button className="wb gf" style={{ fontSize: 10, padding: "6px 10px" }} onClick={() => { setActivePanel("settings"); AudioManager.playSFX("click"); }}>SET</button>
           {ds.nftBoostActive && <div className="wb gf" style={{ color: "#FFFFFF", padding: "6px 12px", pointerEvents: "none", fontSize: 6, borderColor: "#5C4033", background: "linear-gradient(180deg,#CE9E64 0%,#8D5A32 100%)" }}>BOOST ACTIVE</div>}
         </div>
@@ -1901,6 +1979,7 @@ export default function FarmingGame() {
                 {activePanel === "nft" && "MY NFTS"}
                 {activePanel === "shop" && "CITY SHOP"}
                 {activePanel === "settings" && "SETTINGS"}
+                {activePanel === "devnet" && "DEVNET INFO"}
               </span>
               <button className="wb" style={{ padding: isMobile ? "2px 8px" : "4px 10px", fontSize: isMobile ? 7 : 9 }} onClick={() => { closePanel(); AudioManager.playSFX("click"); }}>X</button>
             </div>
@@ -1915,8 +1994,8 @@ export default function FarmingGame() {
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: isMobile ? 6 : 12 }}>
                         <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#4CAF50", boxShadow: "0 0 8px #4CAF50", flexShrink: 0 }} />
                         <div className="gf" style={{ color: "#4CAF50", fontSize: isMobile ? 6 : 8 }}>CONNECTED</div>
-                        <div className="gf" style={{ fontSize: 5, color: walletType === "solana" ? "#ab9ff2" : "#f6851b", background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: 4 }}>
-                          {walletType === "solana" ? "SOLANA" : "EVM"}
+                        <div className="gf" style={{ fontSize: 5, color: "#ab9ff2", background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: 4 }}>
+                          SOLANA
                         </div>
                       </div>
                       {/* Address box */}
@@ -1930,22 +2009,13 @@ export default function FarmingGame() {
                       </div>
                       <div className="gf" style={{ color: "#FFD700", fontSize: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 14 }}>{ds.player.lifetopiaGold} LFG</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 6 : 10 }}>
-                        {walletType === "solana" && (
-                          <>
-                            <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}
-                              onClick={async () => { AudioManager.playSFX("click"); const res = await initializeTokenAccount(); stateRef.current.notification = { text: res.success ? "TOKEN ACCOUNT INITIALIZED!" : (res.error || "INIT FAILED").toUpperCase().slice(0, 40), life: 200 }; setDs({ ...stateRef.current }); }}>
-                              INIT TOKEN ACCOUNT
-                            </button>
-                            <a href={`https://solscan.io/address/${walletAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
-                              <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}>SOLSCAN â†—</button>
-                            </a>
-                          </>
-                        )}
-                        {walletType === "evm" && (
-                          <a href={`https://etherscan.io/address/${walletAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
-                            <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}>ETHERSCAN â†—</button>
-                          </a>
-                        )}
+                        <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}
+                          onClick={async () => { AudioManager.playSFX("click"); const res = await initializeTokenAccount(); stateRef.current.notification = { text: res.success ? "TOKEN ACCOUNT INITIALIZED!" : (res.error || "INIT FAILED").toUpperCase().slice(0, 40), life: 200 }; setDs({ ...stateRef.current }); }}>
+                          INIT TOKEN ACCOUNT
+                        </button>
+                        <a href={`https://solscan.io/address/${walletAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
+                          <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}>SOLSCAN â†—</button>
+                        </a>
                         <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 6, padding: isMobile ? "6px" : "10px", marginTop: isMobile ? 2 : 4, background: "linear-gradient(180deg,#8B2020,#5C1010)", borderColor: "#8B2020" }}
                           onClick={() => { disconnectWallet(); AudioManager.playSFX("click"); closePanel(); }}>
                           DISCONNECT
@@ -2182,6 +2252,32 @@ export default function FarmingGame() {
                     RESET PROGRESS (LEVEL 1)
                   </button>
                   <div style={{ marginTop: 8, fontSize: 6, color: "#8B4513", opacity: 0.7 }}>ACTIVE: {ds.farmBalancePreset.toUpperCase()} | V.1.0.0</div>
+                </div>
+              )}
+
+              {/* â”€â”€ DEVNET PANEL â”€â”€ */}
+              {activePanel === "devnet" && (
+                <div style={{ background: "#1a0f08", padding: "2px 0", display: "flex", flexDirection: "column", gap: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginBottom: 4 }}>TOKEN MINT</div>
+                  <div style={{ fontSize: isMobile ? 4 : 5, color: "#FFFFFF", wordBreak: "break-all", lineHeight: 1.8 }}>
+                    {TOKEN_MINT}
+                  </div>
+                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginTop: 6, marginBottom: 4 }}>NETWORK</div>
+                  <div style={{ fontSize: isMobile ? 6 : 7, color: "#FFFFFF" }}>Solana Devnet</div>
+                  <div style={{ fontSize: isMobile ? 4 : 5, color: "rgba(255,255,255,0.5)" }}>https://api.devnet.solana.com</div>
+                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginTop: 6, marginBottom: 4 }}>GOLD SYNC</div>
+                  <div style={{ fontSize: isMobile ? 5 : 6, color: "#FFFFFF", lineHeight: 1.8 }}>
+                    {walletConnected && !walletAddress.startsWith("guest") ? (
+                      <>
+                        <div>In-game gold syncs to blockchain</div>
+                        <div style={{ marginTop: 4 }}>MINT on earn gold</div>
+                        <div style={{ marginTop: 2 }}>BURN on spend gold</div>
+                      </>
+                    ) : (
+                      <div style={{ color: "rgba(255,255,255,0.5)" }}>Connect wallet to enable sync</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 5, color: "rgba(0,0,0,0.4)", marginTop: 8 }}>LIFETOPIA WORLD | DEVNET BUILD</div>
                 </div>
               )}
 
