@@ -1,6 +1,10 @@
 /**
  * Single source of truth: Public Alpha runs entirely on Solana Devnet.
  * One mint address drives LFG-style token ops + on-chain utility / boost checks (GDD §8).
+ *
+ * ⚠️  MINT ADDRESS RESMI DEVNET: ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu
+ *     Semua integrasi (COIN off-chain, GOLD on-chain) harus pakai address ini.
+ *     Jangan ganti tanpa update .env dan semua referensi di bawah.
  */
 
 function envTrim(key: string): string {
@@ -22,7 +26,7 @@ export function resolveLifetopiaAlphaMint(): string {
     envTrim("VITE_DEVNET_TOKEN_MINT") ||
     envTrim("VITE_TOKEN_MINT_ADDRESS") ||
     envTrim("VITE_ALPHA_NFT_MINT") ||
-    "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT"
+    "ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu" // ← mint resmi devnet
   );
 }
 
