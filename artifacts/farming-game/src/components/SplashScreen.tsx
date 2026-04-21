@@ -355,6 +355,13 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
           0%,100% { transform:translateX(-50%) translateY(0); }
           50%     { transform:translateX(-50%) translateY(0); }
         }
+        @keyframes logoBounce {
+          0%   { transform: translate(-50%, -50%) scale(1) translateY(0px); }
+          30%  { transform: translate(-50%, -50%) scale(1.06, 0.94) translateY(-12px); }
+          50%  { transform: translate(-50%, -50%) scale(0.96, 1.08) translateY(2px); }
+          70%  { transform: translate(-50%, -50%) scale(1.03, 0.97) translateY(-5px); }
+          100% { transform: translate(-50%, -50%) scale(1) translateY(0px); }
+        }
       `}</style>
 
       {/* BACKGROUND */}
@@ -394,6 +401,7 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
           zIndex: 10,
           pointerEvents: "none",
           transform: "translate(-50%, -50%)",
+          animation: "logoBounce 1.8s ease-in-out infinite",
         }}
       />
 
