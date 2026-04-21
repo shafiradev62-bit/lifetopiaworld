@@ -2596,8 +2596,8 @@ export default function FarmingGame() {
               {activePanel === "devnet" && (
                 <div style={{ background: "#1a0f08", padding: "4px 0", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div className="gf" style={{ fontSize: 8, color: "#D4AF37", letterSpacing: 1, textAlign: "center" }}>◎ SOLANA DEVNET</div>
-                  <div className="gf" style={{ fontSize: isMobile ? 4 : 5, color: "rgba(255,255,255,0.4)", textAlign: "center", wordBreak: "break-all" }}>
-                    {"ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu"}
+                  <div style={{ fontFamily: "monospace", fontSize: isMobile ? 7 : 9, color: "rgba(255,255,255,0.8)", textAlign: "center", wordBreak: "break-all", lineHeight: 1.35 }}>
+                    {"MINT: ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu"}
                   </div>
                   {walletConnected && !walletAddress.startsWith("guest") && (
                     <div className="gf" style={{ fontSize: isMobile ? 5 : 6, color: "#9D7BFF", textAlign: "center" }}>
