@@ -912,9 +912,10 @@ export default function FarmingGame() {
           if (applyRow(JSON.parse(cached))) {
             setInitialLoadComplete(true);
             // Background sync with Supabase - non-blocking, fire and forget
-            supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle().then(u => {
-              if (u.data) applyRow(u.data);
-            }).catch(() => {});
+            supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle().then(
+              (u) => { if (u.data) applyRow(u.data); },
+              () => {},
+            );
             // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value) - fire and forget
             if (!addr.startsWith("guest")) {
               fetchDevnetLFGBalance(addr).then(bal => {

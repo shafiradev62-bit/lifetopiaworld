@@ -1345,11 +1345,13 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       return s;
     } else if (plot.crop) {
       if (plot.crop.dead) s.notification = { text: "CLEAR DEAD CROP FIRST!", life: 90 };
-      else if (plot.crop.ready) s.notification = { text: "HARVESt: "PLOT OCCUPIED!", life: 90 };
+      else if (plot.crop.ready) s.notification = { text: "HARVEST FIRST!", life: 90 };
+      else s.notification = { text: "PLOT OCCUPIED!", life: 90 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — plot occupied/dead/ready`);
       return s;
-    } else if (count <= 0) {O ${cropType.toUpperCase()} SEEDS!`, life: 90 };
+    } else if (count <= 0) {
+      s.notification = { text: `NO ${cropType.toUpperCase()} SEEDS!`, life: 90 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — no seeds (${tool})`);
       return s;
@@ -1378,12 +1380,13 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
       firePlayerSocialBubble(s, "🌱", 1800);
       bumpQuestProgress(s, "plant");
-      s.plotJuice = { plotId: plot.id, until: s.time + 360 }; crop=${plot.crop?.type}
+      s.plotJuice = { plotId: plot.id, until: s.time + 360 };
       console.log(`[performPlotAction] PLANT ${cropType} done action=${s.player.action} actionTimer=${s.player.actionTimer} plotId=${plot.id}`);
     }
 
   // CRITICAL: Replace the entire plot in the array with the modified copy
-  s.farmPlots = [...s.farmPlots];  }
+  s.farmPlots = [...s.farmPlots];
+  }
 
   s.farmPlots[plotIdx] = plot;
   return s;
