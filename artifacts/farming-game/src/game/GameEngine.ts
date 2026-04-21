@@ -273,6 +273,13 @@ export function createInitialState(): GameState {
     viewportH: typeof window !== "undefined" ? window.innerHeight : 720,
     farmingEngine: farmingEngineRelease(),
     gardenRemotePlayers: [],
+    collectibles: createCollectibles(),
+    weatherType: "none",
+    weatherIntensity: 0,
+    interactiveSpots: createInteractiveSpots(),
+    npcChatPool: {},
+    worldEventText: null,
+    worldEventUntil: 0,
   };
 
   applyFarmBalancePreset(s.farmBalancePreset);
