@@ -398,6 +398,13 @@ export interface GameState {
         toolKey: string;
       };
   gardenRemotePlayers: GardenRemotePlayer[];
+  collectibles: Collectible[];
+  weatherType: "none" | "rain" | "snow" | "petals";
+  weatherIntensity: number;
+  interactiveSpots: InteractiveSpot[];
+  npcChatPool: Record<string, string[]>;
+  worldEventText: string | null;
+  worldEventUntil: number;
   fishingSession: {
     state: "casting" | "waiting" | "bite" | "struggle" | "success" | "failed";
     timer: number;
