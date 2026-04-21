@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+﻿import { useEffect, useRef, useState, useCallback } from "react";
 import { App } from "@capacitor/app";
 import {
   GameState, MapType, SHOP_ITEMS, FARM_GRID, FarmBalancePreset,
@@ -651,6 +651,8 @@ export default function FarmingGame() {
       setConnectingWallet("phantom");
       const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
@@ -681,6 +683,8 @@ export default function FarmingGame() {
       setConnectingWallet("solflare");
       const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
@@ -709,6 +713,8 @@ export default function FarmingGame() {
       setConnectingWallet("backpack");
       const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
@@ -955,15 +961,20 @@ export default function FarmingGame() {
     return () => clearInterval(timer);
   }, [nfts]);
 
-  // Auto-restore wallet from localStorage - DISABLED to prevent stale connections
+  // Auto-reconnect wallet silently on page reload (onlyIfTrusted = no popup)
   useEffect(() => {
-    // Clear stale wallet data to ensure CONNECT WALLET button always appears
-    localStorage.removeItem("wallet_addr");
-    localStorage.removeItem("wallet_type");
-    setWalletConnected(false);
-    setWalletAddress("");
-    setWalletType(null);
-  }, []);
+    const savedAddr = localStorage.getItem("wallet_addr");
+    const savedType = localStorage.getItem("wallet_type");
+    if (!savedAddr || !savedType) return;
+
+    const w = window as any;
+
+    // Try to silently reconnect Solana wallets (Phantom, Solflare, Backpack)
+    if (savedType === "solana") {
+      const providers: Array<{ sol: any; name: string }> = [];
+      if (w.phantom?.solana?.isPhantom) providers.push({ sol: w.phantom.solana, name: "Phantom" });
+      else if (w.solana?.isPhantom) providers.push({ sol: w.solana, name: "Phantom" });
+      if (w.solflare?.isSolflare) providers.push({ sol: w.solflare, name: "
 
   // â”€â”€ Map ambient audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -2772,3 +2783,5 @@ export default function FarmingGame() {
     </div>
   );
 }
+
+
