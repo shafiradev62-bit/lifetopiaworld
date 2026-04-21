@@ -1100,7 +1100,8 @@ function executePlotAction(s: GameState, plotId: string, tool: string) {
 }
 
 function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: number, cy: number): GameState {
-  const plot = s.farmPlots[plotIdx];
+  // Create a deep copy of the plot to avoid reference issues
+  const plot = { ...s.farmPlots[plotIdx], crop: s.farmPlots[plotIdx].crop ? { ...s.farmPlots[plotIdx].crop } : null };
 
   // [DEBUG] Plant/Wallet flow: log every step for Capacitor Inspect
   console.log(`[performPlotAction] START tool=${tool} plotIdx=${plotIdx} player.x=${Math.round(s.player.x)} player.y=${Math.round(s.player.y)} actionTimer=${s.player.actionTimer} wallet=${s.player.walletAddress?.slice(0,8) ?? "none"}`);
@@ -1339,25 +1340,21 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
     const count = s.player.inventory[tool] || 0;
 
     if (!plot.tilled) {
-      s.notification = { text: "TILL SOIL FIRST! SELECT HOE [1] THEN CLICK PLOT", life: 160 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — soil not tilled`);
       return s;
     } else if (plot.crop) {
       if (plot.crop.dead) s.notification = { text: "CLEAR DEAD CROP FIRST!", life: 90 };
-      else if (plot.crop.ready) s.notification = { text: "HARVEST FIRST!", life: 90 };
-      else s.notification = { text: "PLOT OCCUPIED!", life: 90 };
+      else if (plot.crop.ready) s.notification = { text: "HARVESt: "PLOT OCCUPIED!", life: 90 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — plot occupied/dead/ready`);
       return s;
-    } else if (count <= 0) {
-      s.notification = { text: `NO ${cropType.toUpperCase()} SEEDS!`, life: 90 };
+    } else if (count <= 0) {O ${cropType.toUpperCase()} SEEDS!`, life: 90 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — no seeds (${tool})`);
       return s;
     } else if (!isCropPlantingUnlocked(cropType, s.player.level, s.farmBalancePreset)) {
       const need = seedUnlockLevel(cropType, s.farmBalancePreset);
-      s.notification = { text: `LOCKED — LEVEL ${need}+`, life: 90 };
       s.farmPlots[plotIdx] = plot;
       console.log(`[performPlotAction] SEED blocked — level too low (need ${need})`);
       return s;
@@ -1381,10 +1378,12 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
       firePlayerSocialBubble(s, "🌱", 1800);
       bumpQuestProgress(s, "plant");
-      s.plotJuice = { plotId: plot.id, until: s.time + 360 };
+      s.plotJuice = { plotId: plot.id, until: s.time + 360 }; crop=${plot.crop?.type}
       console.log(`[performPlotAction] PLANT ${cropType} done action=${s.player.action} actionTimer=${s.player.actionTimer} plotId=${plot.id}`);
     }
-  }
+
+  // CRITICAL: Replace the entire plot in the array with the modified copy
+  s.farmPlots = [...s.farmPlots];  }
 
   s.farmPlots[plotIdx] = plot;
   return s;
