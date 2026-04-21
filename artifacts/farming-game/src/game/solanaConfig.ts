@@ -27,10 +27,14 @@ export const CANONICAL_DEVNET_MINT = "ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaAp
  * tapi canonical mint selalu jadi fallback terakhir.
  */
 export function resolveLifetopiaAlphaMint(): string {
-  return (
-    envTrim("VITE_LIFETOPIA_ALPHA_MINT") ||
-    CANONICAL_DEVNET_MINT
-  );
+  const envMint = envTrim("VITE_LIFETOPIA_ALPHA_MINT");
+  if (envMint && envMint !== CANONICAL_DEVNET_MINT) {
+    console.warn(
+      "[SolanaConfig] Ignoring non-canonical VITE_LIFETOPIA_ALPHA_MINT. Using canonical devnet mint:",
+      CANONICAL_DEVNET_MINT,
+    );
+  }
+  return CANONICAL_DEVNET_MINT;
 }
 
 export const LIFETOPIA_ALPHA_MINT = resolveLifetopiaAlphaMint();

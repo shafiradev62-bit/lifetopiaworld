@@ -43,7 +43,7 @@ const NX: Record<string,number> = { wallet:72, tasks:79, items:85, nfts:90, sett
 const STEPS: StoryStep[] = [
   { id:"welcome", title:"WELCOME TO LIFETOPIA WORLD", map:"home", portrait:"/player_wave.png",
     bubble:"Welcome, Farmer! This is LIFETOPIA WORLD — a cozy farming life simulation on Solana. Your journey starts here on your very own farm.",
-    details:["You are a farmer in Lifetopia World. Your goal: grow crops, earn GOLD, and build your legacy on the blockchain.","This is a PUBLIC ALPHA — your feedback shapes the future of this world. Every action you take is part of the experiment.","You can connect your Solana or EVM wallet to save progress, claim NFT boosts, and earn LFG tokens on-chain.","Let's begin your orientation. Follow the guide carefully — each step unlocks the next part of your farm life."],
+    details:["You are a farmer in Lifetopia World. Your goal: grow crops, earn GOLD, and build your legacy on the blockchain.","This is a PUBLIC ALPHA — your feedback shapes the future of this world. Every action you take is part of the experiment.","You can connect your Solana or EVM wallet to save progress, claim NFT boosts, and earn GOLD tokens on-chain.","Let's begin your orientation. Follow the guide carefully — each step unlocks the next part of your farm life."],
     detailMeta:[{toolSlot:-1},{toolSlot:-1},{toolSlot:98,navBtn:"wallet",targetPct:{x:NX.wallet,y:NY},dir:"down"},{toolSlot:-1}] },
   { id:"farm", title:"YOUR FARM — THE CORE LOOP", map:"home", portrait:"/farm_till.png",
     bubble:"This is your FARM. The core gameplay loop happens right here. Every crop you grow earns you GOLD and EXP to level up.",

@@ -291,7 +291,7 @@ export default function FarmingGame() {
         setLastTxId(res.txid);
         setShowTxPopup(true);
         fetchDevnetLFGBalance(walletAddress).then(setDevnetLFGBalance).catch(() => {});
-        triggerPopup('AIRDROP +5 LFG ON DEVNET!');
+        triggerPopup('AIRDROP +5 GOLD ON DEVNET!');
       } else {
         stateRef.current.notification = { text: (res.error || 'AIRDROP FAILED').toUpperCase().slice(0,40), life: 120 };
         setDs({ ...stateRef.current });
@@ -326,7 +326,7 @@ export default function FarmingGame() {
         setLastTxId(res.txid);
         setShowTxPopup(true);
         fetchDevnetLFGBalance(walletAddress).then(setDevnetLFGBalance).catch(() => {});
-        triggerPopup(`HARVEST +${amount} LFG ON DEVNET!`);
+        triggerPopup(`HARVEST +${amount} GOLD ON DEVNET!`);
       } else {
         stateRef.current.notification = { text: (res.error || 'CLAIM FAILED').toUpperCase().slice(0,40), life: 120 };
         setDs({ ...stateRef.current });
@@ -1122,7 +1122,7 @@ export default function FarmingGame() {
           setDs({ ...stateRef.current });
         }).catch(() => {});
         stateRef.current.player.nftEligibility = false;
-        const claimText = "ALPHA PASS RECEIVED — LFG ON DEVNET!";
+        const claimText = "ALPHA PASS RECEIVED — GOLD ON DEVNET!";
         stateRef.current.notification = { text: claimText, life: 160 };
         triggerPopup(claimText);
         AudioManager.playSFX("wallet", 0.55);
@@ -1927,7 +1927,7 @@ export default function FarmingGame() {
           <button className="wb gf" onClick={() => { setActivePanel("inventory"); AudioManager.playSFX("click"); }}>ITEMS</button>
           <button className="wb gf" onClick={() => { setActivePanel("nft"); AudioManager.playSFX("click"); }}>MY NFTS</button>
           <div ref={goldHudRef} className="wb gf" style={{ color: "#FFD700", padding: "8px 20px", fontSize: 13, border: "2px solid #FFD700", boxShadow: "0 0 10px rgba(255,215,0,0.4)", pointerEvents: "none" }}>GOLD {ds.player.gold}</div>
-          <div className="wb gf" style={{ color: "#FFFFFF", padding: "6px 12px", pointerEvents: "none" }}>{ds.player.lifetopiaGold} LFG</div>
+          <div className="wb gf" style={{ color: "#FFFFFF", padding: "6px 12px", pointerEvents: "none" }}>{ds.player.lifetopiaGold} GOLD</div>
           {/* Devnet status button */}
           <button
             className="wb gf"
@@ -2246,7 +2246,7 @@ export default function FarmingGame() {
                         {walletAddress}
                         <div style={{ fontSize: 4, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>TAP TO COPY</div>
                       </div>
-                      <div className="gf" style={{ color: "#FFD700", fontSize: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 14 }}>{ds.player.lifetopiaGold} LFG</div>
+                      <div className="gf" style={{ color: "#FFD700", fontSize: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 14 }}>{ds.player.lifetopiaGold} GOLD</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 6 : 10 }}>
                         <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}
                           onClick={async () => { AudioManager.playSFX("click"); const res = await initializeTokenAccount(); stateRef.current.notification = { text: res.success ? "TOKEN ACCOUNT INITIALIZED!" : (res.error || "INIT FAILED").toUpperCase().slice(0, 40), life: 200 }; setDs({ ...stateRef.current }); }}>
@@ -2601,7 +2601,7 @@ export default function FarmingGame() {
                   </div>
                   {walletConnected && !walletAddress.startsWith("guest") && (
                     <div className="gf" style={{ fontSize: isMobile ? 5 : 6, color: "#9D7BFF", textAlign: "center" }}>
-                      LFG: {devnetLFGBalance.toFixed(2)}
+                      GOLD: {devnetLFGBalance.toFixed(2)}
                     </div>
                   )}
                   <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
@@ -2613,9 +2613,9 @@ export default function FarmingGame() {
                     onClick={devnetAirdrop}
                     style={{ fontSize: isMobile ? 6 : 7, padding: "10px 14px", opacity: devnetTxBusy === "airdrop" ? 0.6 : 1 }}
                   >
-                    {devnetTxBusy === "airdrop" ? "SENDING..." : "◎ AIRDROP +5 LFG"}
+                    {devnetTxBusy === "airdrop" ? "SENDING..." : "◎ AIRDROP +5 GOLD"}
                   </button>
-                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint 5 LFG to wallet on devnet</div>
+                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint 5 GOLD to wallet on devnet</div>
 
                   <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
 
@@ -2626,9 +2626,9 @@ export default function FarmingGame() {
                     onClick={devnetHarvestClaim}
                     style={{ fontSize: isMobile ? 6 : 7, padding: "10px 14px", opacity: devnetTxBusy === "harvest" ? 0.6 : 1 }}
                   >
-                    {devnetTxBusy === "harvest" ? "SENDING..." : "CLAIM HARVEST LFG"}
+                    {devnetTxBusy === "harvest" ? "SENDING..." : "CLAIM HARVEST GOLD"}
                   </button>
-                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint LFG for ready crops on devnet</div>
+                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint GOLD for ready crops on devnet</div>
 
                   <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
 

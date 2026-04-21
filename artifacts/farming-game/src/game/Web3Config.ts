@@ -55,12 +55,8 @@ class SolanaWalletConnector {
       if (wallet) {
         const provider = wallet.provider;
         
-        let response: any;
-        try {
-          response = await provider.connect({ onlyIfTrusted: true });
-        } catch (e) {
-          response = await provider.connect();
-        }
+        // Manual connect path: immediately request wallet popup.
+        const response = await provider.connect();
         
         const publicKey = response?.publicKey?.toString() || provider.publicKey?.toString();
         
@@ -77,10 +73,6 @@ class SolanaWalletConnector {
         this.notify();
         console.log('[Wallet] Connected to', wallet.name, publicKey);
         return { publicKey, provider, walletName: wallet.name };
-      }
-      
-      if (!confirm('Solana wallet not detected!\n\nInstall Phantom wallet?\n\n1. Click OK to open Phantom website\n2. Install the extension\n3. Create/import wallet\n4. Refresh this page')) {
-        return undefined;
       }
       
       window.open('https://phantom.app/', '_blank');
