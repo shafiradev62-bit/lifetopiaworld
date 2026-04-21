@@ -24,6 +24,7 @@ export default defineConfig({
   define: {
     "import.meta.env": {
       VITE_ALCHEMY_API_KEY: "JiVbTwHnF3qEGfs5AtgKR",
+      VITE_LIFETOPIA_ALPHA_MINT: "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT",
       VITE_TOKEN_MINT_ADDRESS: "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT",
       VITE_WALLET_DAPP_URL: "https://test-lifetopia.example.com",
     },

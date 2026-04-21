@@ -2,30 +2,20 @@
  * Blockchain Utilities — JSON-RPC based (no npm packages needed)
  *
  * Pure fetch-based RPC calls for:
- *   - NFT ownership verification (Alpha NFT)
- *   - Token balance (pure JSON-RPC fallback)
- *
- * For full @solana/web3.js features, also see solanaToken.ts
+ *   - Utility mint / "Alpha" holdings (same mint as LFG on devnet)
+ *   - Token balance (delegates to solanaToken)
  */
 
 import { fetchTokenBalanceByRPC } from "./solanaToken";
+import { LIFETOPIA_DEVNET_RPC, LIFETOPIA_ALPHA_MINT } from "./solanaConfig";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 export const BLOCKCHAIN_CONFIG = {
-  ALCHEMY_API_KEY:
-    import.meta.env?.VITE_ALCHEMY_API_KEY || "JiVbTwHnF3qEGfs5AtgKR",
-  TOKEN_MINT:
-    import.meta.env?.VITE_TOKEN_MINT_ADDRESS ||
-    "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT",
-  SOLANA_RPC: `https://solana-mainnet.g.alchemy.com/v2/${
-    import.meta.env?.VITE_ALCHEMY_API_KEY || "JiVbTwHnF3qEGfs5AtgKR"
-  }`,
-  SOLANA_DEVNET_RPC:
-    import.meta.env?.VITE_SOLANA_DEVNET_RPC ||
-    "https://api.devnet.solana.com",
-  /** Alpha NFT mint address (GDD Section 8 — NFT-gated gameplay) */
-  ALPHA_NFT_MINT: import.meta.env?.VITE_ALPHA_NFT_MINT || "",
+  /** Same as LFG / utility mint — devnet only */
+  TOKEN_MINT: LIFETOPIA_ALPHA_MINT,
+  SOLANA_DEVNET_RPC: LIFETOPIA_DEVNET_RPC,
+  ALPHA_NFT_MINT: LIFETOPIA_ALPHA_MINT,
 };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -56,38 +46,41 @@ export interface TokenBalanceRPCResponse {
   };
 }
 
-// ─── NFT Ownership Check ─────────────────────────────────────────────────────
+function hasPositiveTokenHoldings(data: unknown): boolean {
+  const accounts = (data as { result?: { value?: unknown[] } })?.result?.value;
+  if (!Array.isArray(accounts) || accounts.length === 0) return false;
+  for (const acct of accounts) {
+    const ta = (acct as { account?: { data?: { parsed?: { info?: { tokenAmount?: { uiAmount?: number | null; amount?: string } } } } } })
+      ?.account?.data?.parsed?.info?.tokenAmount;
+    if (!ta) continue;
+    const raw = BigInt(String(ta.amount ?? "0"));
+    const ui = ta.uiAmount;
+    if (raw > 0n) return true;
+    if (typeof ui === "number" && ui > 0) return true;
+  }
+  return false;
+}
+
+// ─── NFT / utility mint check ────────────────────────────────────────────────
 
 /**
- * Checks if the wallet holds any tokens of the Alpha NFT mint on Devnet.
- * Used for GDD Section 8 (NFT-gated gameplay).
- *
- * Also supports Metaplex NFT metadata check via getProgramAccounts
- * for standard pNFT/mC NFT collections.
+ * True if the wallet holds a positive balance of the unified Alpha / LFG mint on Devnet.
+ * Public Alpha: one mint for token + lightweight on-chain utility (GDD §8).
  */
-export async function CheckNFTOwnership(
-  walletAddress: string,
-): Promise<boolean> {
+export async function CheckNFTOwnership(walletAddress: string): Promise<boolean> {
   if (!walletAddress) return false;
 
-  const mint =
-    BLOCKCHAIN_CONFIG.ALPHA_NFT_MINT?.trim() ||
-    "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT";
+  const mint = LIFETOPIA_ALPHA_MINT;
 
   try {
-    // Method 1: SPL Token check (fastest, works for any SPL mint)
     const tokenBody = {
       jsonrpc: "2.0",
-      id: "alpha-nft-check",
+      id: "alpha-utility-check",
       method: "getTokenAccountsByOwner",
-      params: [
-        walletAddress,
-        { mint },
-        { encoding: "jsonParsed" },
-      ],
+      params: [walletAddress, { mint }, { encoding: "jsonParsed" }],
     };
 
-    const res = await fetch(BLOCKCHAIN_CONFIG.SOLANA_DEVNET_RPC, {
+    const res = await fetch(LIFETOPIA_DEVNET_RPC, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(tokenBody),
@@ -100,29 +93,12 @@ export async function CheckNFTOwnership(
 
     const data = await res.json();
 
-    // Check SPL token accounts
-    if (data?.result?.value?.length > 0) {
-      console.log("[Blockchain] Alpha NFT (SPL) found for", walletAddress);
+    if (hasPositiveTokenHoldings(data)) {
+      console.log("[Blockchain] Alpha / LFG mint held for", walletAddress.slice(0, 8) + "…");
       return true;
     }
 
-    // Method 2: Try mainnet RPC if devnet returns empty
-    // (for production NFT mints deployed on mainnet)
-    const mainnetRes = await fetch(BLOCKCHAIN_CONFIG.SOLANA_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(tokenBody),
-    });
-
-    if (mainnetRes.ok) {
-      const mainnetData = await mainnetRes.json();
-      if (mainnetData?.result?.value?.length > 0) {
-        console.log("[Blockchain] Alpha NFT (mainnet SPL) found for", walletAddress);
-        return true;
-      }
-    }
-
-    console.log("[Blockchain] No Alpha NFT found for", walletAddress);
+    console.log("[Blockchain] No mint balance for", walletAddress.slice(0, 8) + "…");
     return false;
   } catch (err) {
     console.error("[Blockchain] CheckNFTOwnership error:", err);
@@ -137,7 +113,6 @@ export const checkSolanaNFT = CheckNFTOwnership;
 
 /**
  * Fetches LFG token balance using pure JSON-RPC (no npm packages needed).
- * This is the primary balance function used by FarmingGame.tsx.
  * Delegates to solanaToken.ts fetchTokenBalanceByRPC for the actual RPC call.
  */
 export async function fetchTokenBalance(walletAddress: string): Promise<number> {

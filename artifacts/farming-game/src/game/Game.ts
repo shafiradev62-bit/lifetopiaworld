@@ -58,7 +58,20 @@ export interface Crop {
   dead?: boolean;
 }
 
-export type VFXType = "dust" | "plant" | "harvest" | "coin" | "sparkle" | "flash" | "slash" | "drop" | "water" | "leaf" | "petal" | "bubble";
+export type VFXType =
+  | "dust"
+  | "plant"
+  | "harvest"
+  | "coin"
+  | "sparkle"
+  | "flash"
+  | "slash"
+  | "drop"
+  | "water"
+  | "leaf"
+  | "petal"
+  | "bubble"
+  | "shockwave";
 
 export interface FarmPlot {
   id: string;
@@ -131,6 +144,45 @@ export interface NPC {
   chatText?: string;
   chatTimer?: number;
   chatVisible?: boolean;
+  map?: MapType;
+  facing?: number;
+  idleTimer?: number;
+}
+
+export interface FakePlayer {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  targetX?: number;
+  targetY?: number;
+  vx: number;
+  vy: number;
+  color: string;
+  level: number;
+  map: MapType;
+  moveTimer: number;
+  action?: string;
+  actionTimer?: number;
+  facing: number;
+}
+
+export interface ActivityFeedItem {
+  id: string;
+  text: string;
+  timestamp: number;
+  type: "harvest" | "plant" | "level" | "trade";
+}
+
+export interface AmbientParticle {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  type: "leaf" | "dust" | "sparkle" | "butterfly";
+  size: number;
 }
 
 export interface FishBobber {
@@ -327,6 +379,14 @@ export interface GameState {
     tip: string;
   };
   lifeParticles: LifeParticle[];
+  /** Fake multiplayer system */
+  fakePlayers: FakePlayer[];
+  activityFeed: ActivityFeedItem[];
+  ambientParticles: AmbientParticle[];
+  /** Player presence enhancements */
+  playerIdleTime: number;
+  playerReaction: string | null;
+  playerReactionUntil: number;
 }
 
 export const LOADING_TIPS = [

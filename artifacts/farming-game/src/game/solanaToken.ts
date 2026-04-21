@@ -23,29 +23,22 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createTransferInstruction,
 } from "@solana/spl-token";
+import { LIFETOPIA_DEVNET_RPC, LIFETOPIA_ALPHA_MINT } from "./solanaConfig";
 
-// ─── Configuration ───────────────────────────────────────────────────────────
+// ─── Configuration — Devnet only (Public Alpha) ─────────────────────────────
 
-const ALCHEMY_KEY =
-  import.meta.env?.VITE_ALCHEMY_API_KEY || "JiVbTwHnF3qEGfs5AtgKR";
-const TOKEN_MINT =
-  import.meta.env?.VITE_TOKEN_MINT_ADDRESS ||
-  "CG8dh8s8P8y7seC3hB9QWuoBX81ug8MvfZK9s9WjaQFT";
+export const TOKEN_MINT = LIFETOPIA_ALPHA_MINT;
 
-/** Primary RPC — Alchemy Solana mainnet */
-export const SOLANA_RPC = `https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+/** Primary RPC URL — same as devnet for all in-browser token ops */
+export const SOLANA_RPC = LIFETOPIA_DEVNET_RPC;
 
-/** Devnet RPC — for Alpha NFT checks */
-export const SOLANA_DEVNET_RPC =
-  import.meta.env?.VITE_SOLANA_DEVNET_RPC || "https://api.devnet.solana.com";
+export const SOLANA_DEVNET_RPC = LIFETOPIA_DEVNET_RPC;
 
 /** Shared connection instance — reuse for all RPC calls */
-export const connection = new Connection(SOLANA_RPC, {
+export const connection = new Connection(LIFETOPIA_DEVNET_RPC, {
   commitment: "confirmed",
   confirmTransactionInitialTimeout: 60,
 });
-
-export { TOKEN_MINT };
 
 // ─── Helper: get Phantom provider ─────────────────────────────────────────────
 
@@ -188,7 +181,7 @@ export async function fetchTokenBalanceByRPC(walletAddress: string): Promise<num
   if (!walletAddress || walletAddress.length < 32) return 0;
 
   try {
-    const response = await fetch(SOLANA_RPC, {
+    const response = await fetch(LIFETOPIA_DEVNET_RPC, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

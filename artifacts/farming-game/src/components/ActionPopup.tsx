@@ -47,24 +47,24 @@ export default function ActionPopup({ popup, onDone }: Props) {
     >
       {/* Conditionally render wood/gold background or minimal text */}
       <div style={{
-        background: popup.minimal ? "transparent" : "linear-gradient(180deg, #CE9E64 0%, #8D5A32 100%)",
-        border: popup.minimal ? "none" : "4px solid #5C4033",
-        borderRadius: 16,
+        background: popup.minimal ? "transparent" : "linear-gradient(180deg, #D4B896 0%, #B8895A 42%, #7A5234 100%)",
+        border: popup.minimal ? "none" : "4px solid #F4D03F",
+        borderRadius: 20,
         padding: popup.minimal ? "8px 0" : "16px 28px",
-        boxShadow: popup.minimal ? "none" : "0 0 32px rgba(255,215,0,0.35), 0 8px 0 #3a2212, inset 0 2px 4px rgba(255,255,255,0.25)",
+        boxShadow: popup.minimal ? "none" : "0 0 28px rgba(255,215,0,0.4), 0 8px 0 #2f1f10, inset 0 2px 5px rgba(255,255,255,0.35)",
         fontFamily: "'Press Start 2P', monospace",
       }}>
         {/* Icon label — only show if not minimal */}
         {!popup.minimal && (
           <div style={{
             display: "inline-block",
-            background: "#5C4033",
-            border: "2px solid #3a2212",
+            background: "linear-gradient(180deg, #5C4033 0%, #3E2723 100%)",
+            border: "3px solid #E8C547",
             borderRadius: 999,
             padding: "3px 12px",
             fontSize: 7,
-            color: "#FFD700",
-            textShadow: "1px 1px 0 #000",
+            color: "#FFFFFF",
+            textShadow: "1px 1px 0 #000,-1px -1px 0 #000",
             marginBottom: 10,
             letterSpacing: "0.06em",
           }}>

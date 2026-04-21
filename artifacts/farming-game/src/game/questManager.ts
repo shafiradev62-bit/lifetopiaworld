@@ -1,5 +1,18 @@
 import type { GameState, Quest } from "./Game";
 import { supabase } from "./supabase";
+import { onQuestClaimed } from "./devnetTransactions";
+
+type WalletProvider = {
+  signAndSendTransaction?(tx: any): Promise<{ signature: string }>;
+  signTransaction?(tx: any): Promise<any>;
+};
+
+/** Module-level ref so questManager can fire on-chain rewards without receiving provider in every call */
+let _walletRef: { addr: string; provider: WalletProvider } | null = null;
+
+export function setQuestWalletRef(ref: { addr: string; provider: WalletProvider } | null) {
+  _walletRef = ref;
+}
 
 const STORAGE_KEY = (wallet: string) => `lifetopia_daily_quests_${wallet}`;
 
@@ -86,6 +99,13 @@ export function claimQuestReward(
       ? wallet
       : "_guest";
   saveQuestClaimsToStorage(storageKey, claimed);
+
+  // Fire on-chain LFG reward for quest completion
+  const lfgReward = Math.floor(reward * 0.5);
+  if (lfgReward > 0) {
+    onQuestClaimed(questId, lfgReward).catch(e => console.warn("[questManager] onQuestClaimed:", e.message));
+  }
+
   return { reward };
 }
 

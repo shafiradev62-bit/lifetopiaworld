@@ -33,6 +33,7 @@ import {
   LifeParticle,
 } from "./Game";
 import { supabase } from "./supabase";
+import { onHarvestCrop, onFishCaught, onTreeChopped } from "./devnetTransactions";
 
 let serverTimeOffset = 0;
 
@@ -71,6 +72,13 @@ import {
   farmingEngineBeginWork,
   farmingEngineRelease,
 } from "./farmingEngine";
+
+/** Short emoji reaction above the avatar (social sandbox feedback). */
+function firePlayerSocialBubble(s: GameState, emoji: string, durationMs = 2200) {
+  s.player.emoteBubble = emoji;
+  s.player.emoteBubbleUntil = s.time + durationMs;
+  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(12);
+}
 
 /** @deprecated use FARM_ACTION_RADIUS_PX — kept for imports */
 export const PLOT_ACTION_MAX_DIST = FARM_ACTION_RADIUS_PX;
@@ -131,7 +139,7 @@ export function createInitialState(): GameState {
       facing: "down",
       moving: false,
       running: false,
-      speed: 2.5,
+      speed: 3.05,
       tool: null,
       inventory: {
         "wheat-seed": 10,
@@ -167,6 +175,12 @@ export function createInitialState(): GameState {
     mapTransition: { type: "none", progress: 0, tip: "" },
     lifeParticles: [],
     seedCooldowns: {},
+    fakePlayers: [],
+    activityFeed: [],
+    ambientParticles: [],
+    playerIdleTime: 0,
+    playerReaction: null,
+    playerReactionUntil: 0,
     fishingSession: null,
     farmPlots: createFarmPlots(),
     vfxParticles: [],
@@ -310,11 +324,19 @@ function createFarmPlots(): FarmPlot[] {
 
 function createNPCs(): NPC[] {
   return [
-    { id: "npc1", x: 280, y: 430, name: "LUNA",   color: "#FF8A80", vx: 0, vy: 0, moveTimer: 0,  state: "idle" },
-    { id: "npc2", x: 680, y: 400, name: "RIKO",   color: "#82B1FF", vx: 0, vy: 0, moveTimer: 60, state: "idle" },
-    { id: "npc3", x: 480, y: 460, name: "MIKA",   color: "#B9F6CA", vx: 0, vy: 0, moveTimer: 30, state: "idle" },
-    { id: "npc4", x: 820, y: 450, name: "TARO",   color: "#FFD180", vx: 0, vy: 0, moveTimer: 45, state: "idle" },
-    { id: "npc5", x: 160, y: 445, name: "SARI",   color: "#EA80FC", vx: 0, vy: 0, moveTimer: 20, state: "idle" },
+    // Garden NPCs
+    { id: "npc1", x: 280, y: 430, name: "LUNA",   color: "#FF8A80", vx: 0, vy: 0, moveTimer: 0,  state: "idle", map: "garden" },
+    { id: "npc2", x: 680, y: 400, name: "RIKO",   color: "#82B1FF", vx: 0, vy: 0, moveTimer: 60, state: "idle", map: "garden" },
+    { id: "npc3", x: 480, y: 460, name: "MIKA",   color: "#B9F6CA", vx: 0, vy: 0, moveTimer: 30, state: "idle", map: "garden" },
+    { id: "npc4", x: 820, y: 450, name: "TARO",   color: "#FFD180", vx: 0, vy: 0, moveTimer: 45, state: "idle", map: "garden" },
+    { id: "npc5", x: 160, y: 445, name: "SARI",   color: "#EA80FC", vx: 0, vy: 0, moveTimer: 20, state: "idle", map: "garden" },
+    // Fishing NPCs
+    { id: "npc8", x: 400, y: 450, name: "FISHERMAN", color: "#4FC3F7", vx: 0, vy: 0, moveTimer: 0, state: "idle", map: "fishing" },
+    { id: "npc9", x: 650, y: 470, name: "SAILOR",    color: "#7986CB", vx: 0, vy: 0, moveTimer: 50, state: "idle", map: "fishing" },
+    // Suburban NPCs
+    { id: "npc10", x: 200, y: 470, name: "NEIGHBOR", color: "#AED581", vx: 0, vy: 0, moveTimer: 0, state: "idle", map: "suburban" },
+    { id: "npc11", x: 500, y: 470, name: "MAILMAN",  color: "#FFD54F", vx: 0, vy: 0, moveTimer: 35, state: "idle", map: "suburban" },
+    { id: "npc12", x: 800, y: 470, name: "GARDENER", color: "#BA68C8", vx: 0, vy: 0, moveTimer: 45, state: "idle", map: "suburban" },
   ];
 }
 
@@ -369,6 +391,9 @@ const NPC_CHATS = [
 
 function updateNPCs(s: GameState, dt: number) {
   for (const n of s.npcs) {
+    // Only update NPCs for the current map
+    if (n.map && n.map !== s.currentMap) continue;
+    
     n.moveTimer -= dt;
     
     // Chat logic
@@ -390,7 +415,7 @@ function updateNPCs(s: GameState, dt: number) {
           n.state = "walking";
           n.targetX = n.x + (Math.random() - 0.5) * 200;
           n.targetY = n.y + (Math.random() - 0.5) * 100;
-          // Constrain to garden
+          // Constrain to current map bounds
           n.targetX = Math.max(100, Math.min(940, n.targetX));
           n.targetY = Math.max(300, Math.min(520, n.targetY));
           n.moveTimer = 4000;
@@ -414,6 +439,8 @@ function updateNPCs(s: GameState, dt: number) {
           n.vy = (dy / dist) * 1.2;
           n.x += n.vx;
           n.y += n.vy;
+          // Update facing direction
+          n.facing = dx > 0 ? 1 : -1;
         }
       }
     } else if (n.state === "waving") {
@@ -423,6 +450,169 @@ function updateNPCs(s: GameState, dt: number) {
       }
     }
   }
+}
+
+// Fake player names for multiplayer simulation
+const FAKE_PLAYER_NAMES = [
+  "Alex", "Bella", "Charlie", "Diana", "Ethan", "Fiona", "George", "Hannah",
+  "Ivan", "Julia", "Kevin", "Luna", "Marcus", "Nina", "Oliver", "Paola",
+  "Quinn", "Rosa", "Sam", "Tina", "Uma", "Victor", "Willow", "Xander"
+];
+
+const FAKE_PLAYER_COLORS = [
+  "#FF8A80", "#82B1FF", "#B9F6CA", "#FFD180", "#EA80FC", "#80DEEA",
+  "#FFAB91", "#A5D6A7", "#90CAF9", "#CE93D8", "#F48FB1", "#B39DDB"
+];
+
+const ACTIVITY_MESSAGES = [
+  { type: "harvest" as const, text: "{name} harvested {crop}" },
+  { type: "plant" as const, text: "{name} planted {crop}" },
+  { type: "level" as const, text: "{name} reached level {level}" },
+  { type: "trade" as const, text: "{name} sold crops" }
+];
+
+// Organized paths for fake players per map (like Avatar World Online)
+const MAP_PATHS: Record<MapType, Array<{x: number, y: number}>> = {
+  city: [
+    { x: 100, y: 460 }, { x: 300, y: 460 }, { x: 500, y: 460 }, { x: 700, y: 460 }, { x: 900, y: 460 },
+    { x: 100, y: 520 }, { x: 300, y: 520 }, { x: 500, y: 520 }, { x: 700, y: 520 }, { x: 900, y: 520 }
+  ],
+  fishing: [
+    { x: 200, y: 400 }, { x: 400, y: 400 }, { x: 600, y: 400 }, { x: 800, y: 400 },
+    { x: 200, y: 480 }, { x: 400, y: 480 }, { x: 600, y: 480 }, { x: 800, y: 480 }
+  ],
+  garden: [
+    { x: 150, y: 430 }, { x: 350, y: 430 }, { x: 550, y: 430 }, { x: 750, y: 430 }, { x: 950, y: 430 },
+    { x: 200, y: 480 }, { x: 400, y: 480 }, { x: 600, y: 480 }, { x: 800, y: 480 }
+  ],
+  suburban: [
+    { x: 150, y: 460 }, { x: 400, y: 460 }, { x: 650, y: 460 }, { x: 850, y: 460 },
+    { x: 200, y: 520 }, { x: 450, y: 520 }, { x: 700, y: 520 }
+  ],
+  home: [] // No fake players on farm
+};
+
+function spawnFakePlayer(s: GameState): void {
+  // Don't spawn fake players on farm (home map)
+  const maps: MapType[] = ["city", "fishing", "garden", "suburban"];
+  const map = maps[Math.floor(Math.random() * maps.length)];
+  const paths = MAP_PATHS[map];
+  const startPos = paths[Math.floor(Math.random() * paths.length)];
+  
+  const fakePlayer = {
+    id: `fp${s.particleId++}`,
+    name: FAKE_PLAYER_NAMES[Math.floor(Math.random() * FAKE_PLAYER_NAMES.length)],
+    x: startPos.x,
+    y: startPos.y,
+    vx: 0,
+    vy: 0,
+    color: FAKE_PLAYER_COLORS[Math.floor(Math.random() * FAKE_PLAYER_COLORS.length)],
+    level: 1 + Math.floor(Math.random() * 20),
+    map,
+    moveTimer: 2000 + Math.random() * 5000,
+    facing: Math.random() > 0.5 ? 1 : -1
+  };
+  
+  s.fakePlayers.push(fakePlayer);
+}
+
+function updateFakePlayers(s: GameState, dt: number): void {
+  // Remove any fake players on farm (home map)
+  s.fakePlayers = s.fakePlayers.filter(fp => fp.map !== "home");
+  
+  // Spawn fake players occasionally (max 3 per map, excluding home) - fewer for organized feel
+  if (s.fakePlayers.length < 3 && Math.random() < 0.001) {
+    spawnFakePlayer(s);
+  }
+  
+  for (let i = s.fakePlayers.length - 1; i >= 0; i--) {
+    const fp = s.fakePlayers[i];
+    
+    // Only update fake players on current map
+    if (fp.map !== s.currentMap) continue;
+    
+    fp.moveTimer -= dt;
+    
+    if (fp.moveTimer <= 0) {
+      // Move to next path point (organized movement like Avatar World Online)
+      if (Math.random() < 0.7) {
+        const paths = MAP_PATHS[fp.map];
+        if (paths && paths.length > 0) {
+          // Find nearest path point
+          let nearestIdx = 0;
+          let minDist = Infinity;
+          paths.forEach((p, idx) => {
+            const d = Math.hypot(p.x - fp.x, p.y - fp.y);
+            if (d < minDist) { minDist = d; nearestIdx = idx; }
+          });
+          
+          // Move to adjacent path point (left or right)
+          const direction = Math.random() > 0.5 ? 1 : -1;
+          const nextIdx = (nearestIdx + direction + paths.length) % paths.length;
+          const nextPos = paths[nextIdx];
+          
+          fp.targetX = nextPos.x;
+          fp.targetY = nextPos.y;
+          fp.moveTimer = 4000 + Math.random() * 3000;
+        }
+      } else {
+        // Remove player occasionally
+        s.fakePlayers.splice(i, 1);
+        continue;
+      }
+    }
+    
+    if (fp.targetX !== undefined && fp.targetY !== undefined) {
+      const dx = fp.targetX - fp.x;
+      const dy = fp.targetY - fp.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 5) {
+        const speed = 1.2; // Slower for more organized feel
+        fp.vx = (dx / dist) * speed;
+        fp.vy = (dy / dist) * speed;
+        fp.x += fp.vx;
+        fp.y += fp.vy;
+        fp.facing = dx > 0 ? 1 : -1;
+      }
+    }
+  }
+}
+
+function addActivityFeedItem(s: GameState): void {
+  const crops: CropType[] = ["wheat", "tomato", "carrot", "pumpkin"];
+  const template = ACTIVITY_MESSAGES[Math.floor(Math.random() * ACTIVITY_MESSAGES.length)];
+  const name = FAKE_PLAYER_NAMES[Math.floor(Math.random() * FAKE_PLAYER_NAMES.length)];
+  const crop = crops[Math.floor(Math.random() * crops.length)];
+  const level = 1 + Math.floor(Math.random() * 20);
+  
+  let text = template.text
+    .replace("{name}", name)
+    .replace("{crop}", crop.toUpperCase())
+    .replace("{level}", level.toString());
+  
+  const item = {
+    id: `af${s.particleId++}`,
+    text,
+    timestamp: s.time,
+    type: template.type
+  };
+  
+  s.activityFeed.unshift(item);
+  
+  // Keep only last 10 items
+  if (s.activityFeed.length > 10) {
+    s.activityFeed = s.activityFeed.slice(0, 10);
+  }
+}
+
+function updateActivityFeed(s: GameState, dt: number): void {
+  // Add activity items occasionally
+  if (Math.random() < 0.003) {
+    addActivityFeedItem(s);
+  }
+  
+  // Remove old items (older than 60 seconds)
+  s.activityFeed = s.activityFeed.filter(item => s.time - item.timestamp < 60000);
 }
 
 function updateLifeParticles(s: GameState, dt: number) {
@@ -536,6 +726,13 @@ function completeFishing(s: GameState) {
   s.pendingCloudSave = true;
   fs.timer = 2000; // Finish linger
   s.shake = 15; // Feedback for catch
+  bumpQuestProgress(s, "fish");
+  firePlayerSocialBubble(
+    s,
+    type === "exotic" ? "🐠" : type === "rare" ? "🐟" : "🎣",
+    2000,
+  );
+  onFishCaught(type).catch(e => console.warn("[GameEngine] onFishCaught:", e.message));
 }
 
 export function updateGame(state: GameState, dt: number, stateRef?: MutableRefObject<GameState>): GameState {
@@ -563,6 +760,19 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
   updateGardenCritters(s, dt);
   resolveFishingSession(s, dt);
   updateMarketTrend(s);
+  
+  // Living world systems
+  updateNPCs(s, dt);
+  updateFakePlayers(s, dt);
+  updateActivityFeed(s, dt);
+  updateLifeParticles(s, dt);
+  
+  // Player presence
+  if (!s.player.moving && s.player.actionTimer <= 0) {
+    s.playerIdleTime += dt;
+  } else {
+    s.playerIdleTime = 0;
+  }
   if (s.player.emoteBubble && s.time >= s.player.emoteBubbleUntil)
     s.player.emoteBubble = null;
   
@@ -857,6 +1067,24 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
 
       bumpQuestProgress(s, "harvest");
       addEarnQuestProgress(s, gold);
+      firePlayerSocialBubble(s, plot.crop?.isRare ? "✨" : "🌾", 2000);
+      
+      // Trigger harvest reaction
+      s.playerReaction = plot.crop?.isRare ? "happy" : "normal";
+      s.playerReactionUntil = s.time + 1500;
+      
+      // Add to activity feed
+      const harvestActivity = {
+        id: `af${s.particleId++}`,
+        text: `YOU harvested ${ct.toUpperCase()}`,
+        timestamp: s.time,
+        type: "harvest" as const
+      };
+      s.activityFeed.unshift(harvestActivity);
+      if (s.activityFeed.length > 10) s.activityFeed = s.activityFeed.slice(0, 10);
+      
+      // Fire on-chain LFG reward for harvest
+      onHarvestCrop(ct, !!plot.crop?.isRare).catch(e => console.warn("[GameEngine] onHarvestCrop:", e.message));
       if (wallet) {
         // [DEBUG] Non-blocking quest check — safe fire-and-forget
         import("./questManager").then(qm => {
@@ -1012,6 +1240,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       for (let i = 0; i < 6; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
       spawnVFX(s, cx, cy, "dust");
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
+      firePlayerSocialBubble(s, "🌱", 1800);
       bumpQuestProgress(s, "plant");
       s.plotJuice = { plotId: plot.id, until: s.time + 360 };
       console.log(`[performPlotAction] PLANT ${cropType} done action=${s.player.action} actionTimer=${s.player.actionTimer} plotId=${plot.id}`);
@@ -1268,8 +1497,9 @@ function updateCamera(s: GameState) {
   targetY = Math.max(0, Math.min(maxCY, targetY));
   
   // Smooth follow with lerp
-  s.cameraX = s.cameraX + (targetX - s.cameraX) * 0.25;
-  s.cameraY = s.cameraY + (targetY - s.cameraY) * 0.25;
+  const camLerp = 0.42;
+  s.cameraX = s.cameraX + (targetX - s.cameraX) * camLerp;
+  s.cameraY = s.cameraY + (targetY - s.cameraY) * camLerp;
 }
 
 function updateZoom(s: GameState) {
@@ -1368,7 +1598,7 @@ function updateDamageNumbers(s: GameState) {
 function updatePlayerAnim(s: GameState, dt: number) {
   const p = s.player;
   p.animTimer += dt;
-  const frameTime = p.running ? 6 : 10;
+  const frameTime = p.running ? 5 : 8;
   if (p.animTimer >= frameTime) {
     p.animTimer = 0;
     if (p.moving || p.targetX !== null) {
@@ -1396,7 +1626,7 @@ function updateNotification(s: GameState, dt: number) {
   
   // Premium Map Transition Logic
   if (s.mapTransition && s.mapTransition.type !== "none") {
-    s.mapTransition.progress += 0.025;
+    s.mapTransition.progress += 0.038;
     if (s.mapTransition.progress >= 1 && s.mapTransition.type === "fade-out") {
       // Execute pending map change
       if ((s as any)._transitionCallback) {
@@ -1617,6 +1847,8 @@ export function handleToolAction(
         ns.player.exp += 25;
         spawnText(ns, tree.x, tree.y - 60, "+15 GOLD", "#FFD700", -2);
         addEarnQuestProgress(ns, 15);
+        bumpQuestProgress(ns, "chop");
+        onTreeChopped(tree.type).catch(e => console.warn("[GameEngine] onTreeChopped:", e.message));
         ns.trees.splice(treeIdx, 1);
         ns.notification = {
           text: `${tree.type.toUpperCase()} CLEARED! +15G`,
@@ -1731,6 +1963,7 @@ function handleLevelUp(ns: GameState, px: number, py: number) {
     ns.notification = { text: msg.toUpperCase().slice(0, 48), life: 140 };
     ns.levelUpPopup = { message: msg, until: ns.time + 4500 };
     ns.pendingCloudSave = true;
+    firePlayerSocialBubble(ns, "⭐", 2600);
   }
 }
 

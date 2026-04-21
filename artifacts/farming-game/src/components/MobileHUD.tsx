@@ -41,25 +41,28 @@ const TOOL_ICONS: Record<string, string> = {
 export const mobileHudActionBtnStyle: CSSProperties = {
   fontFamily: "'Press Start 2P', monospace",
   fontSize: 4,
-  padding: "3px 7px",
+  fontWeight: "bold",
+  padding: "4px 9px",
   minHeight: 26,
-  maxHeight: 28,
+  maxHeight: 30,
   lineHeight: 1.2,
-  borderRadius: 6,
-  border: "2px solid #5C4033",
-  background: "linear-gradient(180deg,#A07844 0%,#6B4520 100%)",
-  color: "#FFF5E0",
+  borderRadius: 999,
+  border: "3px solid #F4D03F",
+  background: "linear-gradient(180deg,#D4B896 0%,#B8895A 45%,#7A5234 100%)",
+  color: "#FFFFFF",
   cursor: "pointer",
   touchAction: "manipulation",
   flexShrink: 0,
-  boxShadow: "0 2px 0 #2a1808",
+  boxShadow: "0 3px 0 #2f1f10, inset 0 1px 2px rgba(255,255,255,0.45)",
+  textShadow: "1px 1px 0 #000,-1px -1px 0 #000",
 };
 
 export const mobileHudAccentBtnStyle: CSSProperties = {
   ...mobileHudActionBtnStyle,
-  background: "linear-gradient(180deg, #FFD700 0%, #C8A020 100%)",
-  borderColor: "#8d6e15",
+  background: "linear-gradient(180deg, #FFE082 0%, #F4D03F 42%, #C9A227 100%)",
+  borderColor: "#FFF8E1",
   color: "#3E2723",
+  textShadow: "1px 1px 0 rgba(255,255,255,0.35)",
 };
 
 function nonHomeHint(map: string): string {
@@ -84,11 +87,11 @@ export default function MobileHUD({
   return (
     <>
       <style>{`
-        @keyframes mwPulse { 0%,100% { box-shadow: 0 2px 0 #2a1a08, 0 0 0 0 rgba(171,159,242,0.7); } 50% { box-shadow: 0 2px 0 #2a1a08, 0 0 0 4px rgba(171,159,242,0); } }
+        @keyframes mwPulse { 0%,100% { box-shadow: 0 3px 0 #2f1f10, 0 0 0 0 rgba(244,208,63,0.55); } 50% { box-shadow: 0 3px 0 #2f1f10, 0 0 0 6px rgba(244,208,63,0); } }
         .ms { width: ${SLOT}px; height: ${SLOT}px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; position: relative; transition: transform 0.08s; box-shadow: inset 0 0 6px rgba(0,0,0,0.7), 0 2px 3px rgba(0,0,0,0.3); touch-action: manipulation; border: 2px solid #4D2D18; background: linear-gradient(135deg, #8B5E3C 0%, #5E3A24 100%); flex-shrink: 0; }
         .ms:active { transform: scale(0.88) !important; }
         .msa { background: linear-gradient(135deg, #D4AF37 0%, #A07820 100%) !important; border-color: #FFD700 !important; box-shadow: 0 0 6px rgba(255,215,0,0.35), inset 0 0 5px rgba(0,0,0,0.3) !important; }
-        .mb { font-family: 'Press Start 2P', monospace; background: linear-gradient(180deg,#CE9E64,#8D5A32); border: 2px solid #5C4033; border-radius: 999px; color: #FFF5E0; cursor: pointer; box-shadow: 0 2px 0 #3a2212; padding: 3px 6px; font-size: 4px; touch-action: manipulation; flex-shrink: 0; max-height: 26px; line-height: 1.2; }
+        .mb { font-family: 'Press Start 2P', monospace; font-weight: bold; background: linear-gradient(180deg,#D4B896 0%,#B8895A 45%,#7A5234 100%); border: 3px solid #F4D03F; border-radius: 999px; color: #FFFFFF; cursor: pointer; box-shadow: 0 3px 0 #2f1f10, inset 0 1px 2px rgba(255,255,255,0.45); padding: 3px 8px; font-size: 4px; touch-action: manipulation; flex-shrink: 0; max-height: 28px; line-height: 1.2; text-shadow: 1px 1px 0 #000,-1px -1px 0 #000; }
       `}</style>
 
       {/* Top bar */}
@@ -115,8 +118,6 @@ export default function MobileHUD({
               aria-label="Connect Solana wallet"
               style={{
                 animation: "mwPulse 2s infinite",
-                background: "linear-gradient(180deg,#ab9ff2,#512da8)",
-                borderColor: "#ab9ff2",
                 padding: "2px 8px",
                 display: "flex",
                 alignItems: "center",
@@ -174,17 +175,10 @@ export default function MobileHUD({
           type="button"
           onClick={() => { onOpenWorldMap(); }}
           style={{
-            fontFamily: "'Press Start 2P', monospace",
-            flexShrink: 0,
-            background: "linear-gradient(180deg, #CE9E64 0%, #8D5A32 100%)",
-            border: "2px solid #D4AF37",
-            borderRadius: 6,
-            color: "#FFF5E0",
-            padding: "3px 8px",
+            ...mobileHudActionBtnStyle,
             fontSize: 5,
-            lineHeight: 1.2,
-            boxShadow: "0 2px 0 #3a2212",
-            touchAction: "manipulation",
+            padding: "4px 10px",
+            flexShrink: 0,
             maxHeight: 28,
           }}
         >

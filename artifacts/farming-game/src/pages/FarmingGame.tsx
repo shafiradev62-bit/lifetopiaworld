@@ -19,10 +19,11 @@ import {
 import { getShopItemBadge } from "../game/shopCatalog";
 import SplashScreen from "../components/SplashScreen";
 import PreFarmTutorial from "../components/tutorial/PreFarmTutorial";
+import { initializeTokenAccount } from "../game/solanaToken";
 import {
-  transferTokenToUser, getTokenBalance, initializeTokenAccount,
-} from "../game/solanaToken";
-import { mintToWallet, burnFromWallet } from "../game/lfgTreasury";
+  registerDevnetHooks, unregisterDevnetHooks, onShopPurchase,
+  fetchDevnetLFGBalance, DEVNET_TOKEN_MINT, fundTreasuryIfNeeded,
+} from "../game/devnetTransactions";
 import { TOKEN_MINT } from "../game/solanaToken";
 import { AudioManager } from "../game/AudioSystem";
 import {
@@ -266,40 +267,87 @@ export default function FarmingGame() {
   useEffect(() => { walletConnectedRef.current = walletConnected; }, [walletConnected]);
   // Sync activePanel to stateRef so Renderer can suppress canvas overlays
   useEffect(() => { stateRef.current.activePanel = activePanel; }, [activePanel]);
+  // ── Devnet TX state ──────────────────────────────────────────────────────────
+  const [devnetTxBusy, setDevnetTxBusy] = useState<string | null>(null);
+  const [lastTxId, setLastTxId] = useState<string | null>(null);
+  const [showTxPopup, setShowTxPopup] = useState(false);
+  const [devnetLFGBalance, setDevnetLFGBalance] = useState<number>(0);
+
+  // ── Devnet TX: Airdrop 5 LFG (mint from treasury) ───────────────────────────
+  const devnetAirdrop = async () => {
+    if (!walletConnected || walletAddress.startsWith('guest')) {
+      stateRef.current.notification = { text: 'CONNECT WALLET FIRST!', life: 100 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setDevnetTxBusy('airdrop');
+    try {
+      const { devnetMintToPlayer } = await import('../game/devnetTransactions');
+      await fundTreasuryIfNeeded().catch(()=>{});
+      const res = await devnetMintToPlayer(walletAddress, 5, 'airdrop:manual', walletProviderRef.current);
+      if (res.success && res.txid) {
+        setLastTxId(res.txid);
+        setShowTxPopup(true);
+        fetchDevnetLFGBalance(walletAddress).then(setDevnetLFGBalance).catch(() => {});
+        triggerPopup('AIRDROP +5 LFG ON DEVNET!');
+      } else {
+        stateRef.current.notification = { text: (res.error || 'AIRDROP FAILED').toUpperCase().slice(0,40), life: 120 };
+        setDs({ ...stateRef.current });
+      }
+    } catch(e: any) {
+      stateRef.current.notification = { text: (e.message || 'TX FAILED').toUpperCase().slice(0,40), life: 120 };
+      setDs({ ...stateRef.current });
+    } finally { setDevnetTxBusy(null); }
+  };
+
+  // ── Devnet TX: Harvest Claim — mint LFG for current ready crops ──────────────
+  const devnetHarvestClaim = async () => {
+    if (!walletConnected || walletAddress.startsWith('guest')) {
+      stateRef.current.notification = { text: 'CONNECT WALLET FIRST!', life: 100 };
+      setDs({ ...stateRef.current }); return;
+    }
+    const readyCrops = stateRef.current.farmPlots.filter(p => p.crop?.ready);
+    if (readyCrops.length === 0) {
+      stateRef.current.notification = { text: 'NO READY CROPS TO CLAIM!', life: 100 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setDevnetTxBusy('harvest');
+    try {
+      const { devnetMintToPlayer } = await import('../game/devnetTransactions');
+      const amount = readyCrops.reduce((sum, p) => {
+        const base: Record<string,number> = { wheat:1, tomato:2, carrot:3, pumpkin:5, corn:4 };
+        return sum + (base[p.crop!.type] ?? 1) * (p.crop!.isRare ? 3 : 1);
+      }, 0);
+      await fundTreasuryIfNeeded().catch(()=>{});
+      const res = await devnetMintToPlayer(walletAddress, amount, `harvest:${readyCrops.length}crops`, walletProviderRef.current);
+      if (res.success && res.txid) {
+        setLastTxId(res.txid);
+        setShowTxPopup(true);
+        fetchDevnetLFGBalance(walletAddress).then(setDevnetLFGBalance).catch(() => {});
+        triggerPopup(`HARVEST +${amount} LFG ON DEVNET!`);
+      } else {
+        stateRef.current.notification = { text: (res.error || 'CLAIM FAILED').toUpperCase().slice(0,40), life: 120 };
+        setDs({ ...stateRef.current });
+      }
+    } catch(e: any) {
+      stateRef.current.notification = { text: (e.message || 'TX FAILED').toUpperCase().slice(0,40), life: 120 };
+      setDs({ ...stateRef.current });
+    } finally { setDevnetTxBusy(null); }
+  };
+
+  // ── Devnet TX: View reference TX (the original devnet tx) ────────────────────
+  const REFERENCE_TX = '5Yad6ss2HVzP25tUrbnRfw2rg22YebhuHnxbgzzf5VdHsMSWShvVvFoGSSN3RhBdtVm4ZeSFuQiJDg4Wr7PJSHzZ';
+  const devnetViewRefTx = () => {
+    setLastTxId(REFERENCE_TX);
+    setShowTxPopup(true);
+  };
+
 
   // â”€â”€ Gold ↔ Blockchain sync (LFG token mint/burn) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  useEffect(() => {
-    if (!walletConnected || !walletAddress || walletAddress.startsWith("guest")) return;
-    if (goldSyncBusyRef.current) return;
-
-    const currentGold = ds.player.gold;
-    const lastGold = lastSyncedGoldRef.current;
-    if (currentGold === lastGold) return;
-
-    goldSyncBusyRef.current = true;
-    const diff = currentGold - lastGold;
-
-    (async () => {
-      try {
-        if (diff > 0) {
-          await mintToWallet(walletAddress, diff);
-        } else if (diff < 0 && walletProviderRef.current) {
-          const { PublicKey } = await import("@solana/web3.js");
-          await burnFromWallet(
-            new PublicKey(walletAddress),
-            walletProviderRef.current,
-            Math.abs(diff),
-          );
-        }
-        lastSyncedGoldRef.current = currentGold;
-      } catch (e) {
-        console.error("[GoldSync] Failed to sync gold:", e);
-      } finally {
-        goldSyncBusyRef.current = false;
-      }
-    })();
-  }, [ds.player.gold, walletConnected, walletAddress]);
-
+  // Gold sync disabled: in-game GOLD is purely cosmetic/gameplay currency.
+  // LFG on-chain tokens are only minted via explicit player actions:
+  //   - devnetHarvestClaim (harvest ready crops)
+  //   - devnetAirdrop (manual airdrop button)
+  // This prevents shop purchases / any gold spend from burning real tokens.
   // â”€â”€ Register window.startLifetopiaDemo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Use refs so the demo always has fresh closures without re-registering
   const setSplashDoneRef = useRef(setSplashDone);
@@ -350,7 +398,12 @@ export default function FarmingGame() {
     } else if (ds.demoMode) {
       abortDemo();
     }
+    const prev = stateRef.current.currentMap;
     stateRef.current = switchMap(stateRef.current, map);
+    if (prev !== map) {
+      AudioManager.init();
+      AudioManager.playSFX("step", 0.22);
+    }
     saveProgress();
     setDs({ ...stateRef.current });
   };
@@ -389,6 +442,61 @@ export default function FarmingGame() {
 
   // Keep triggerPopupRef in sync so demo can call it
   useEffect(() => { triggerPopupRef.current = triggerPopup; }, [triggerPopup]);
+
+  // ── Real-time Blockchain Sync (LFG + unified Alpha mint on Devnet) ───────────
+  const blockchainSyncBusy = useRef(false);
+
+  const syncBlockchainData = useCallback(async () => {
+    if (!walletConnected || !walletAddress || walletAddress.startsWith("guest")) return;
+    if (blockchainSyncBusy.current) return;
+    blockchainSyncBusy.current = true;
+
+    try {
+      const bal = await fetchDevnetLFGBalance(walletAddress);
+      setDevnetLFGBalance(bal);
+
+      stateRef.current.player.gold = Math.floor(bal);
+      stateRef.current.player.lifetopiaGold = bal;
+
+      const hasUtility = await checkSolanaNFT(walletAddress);
+      const boost = applyNFTBoostsToState(hasUtility);
+
+      if (stateRef.current.nftBoostActive !== boost.nftBoostActive) {
+        stateRef.current.farmingSpeedMultiplier = boost.farmingSpeedMultiplier;
+        stateRef.current.nftBoostActive = boost.nftBoostActive;
+        const boostMsg = hasUtility
+          ? "ALPHA MINT HELD — BOOST ACTIVE!"
+          : "BOOST DEACTIVATED (NO MINT BALANCE)";
+        stateRef.current.notification = { text: boostMsg, life: 120 };
+        triggerPopup(boostMsg);
+      }
+
+      setDs({ ...stateRef.current });
+      console.log(`[Sync] Real-time sync complete for ${walletAddress.slice(0, 8)}...`);
+    } catch (e) {
+      console.warn("[Sync] Blockchain sync stalled, retrying next cycle...", e);
+    } finally {
+      blockchainSyncBusy.current = false;
+    }
+  }, [walletConnected, walletAddress, triggerPopup]);
+
+  useEffect(() => {
+    if (!walletConnected || !walletAddress || walletAddress.startsWith("guest")) return;
+
+    syncBlockchainData();
+
+    const id = setInterval(syncBlockchainData, 8_000);
+
+    const cleanupVisibility = setupVisibilityRestart(() => {
+      console.log("[Sync] Restarting loop after app resume...");
+      syncBlockchainData();
+    });
+
+    return () => {
+      clearInterval(id);
+      cleanupVisibility();
+    };
+  }, [walletConnected, walletAddress, syncBlockchainData]);
 
   // â”€â”€ Splash / Tutorial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleSplashSelect = useCallback((map: MapType) => {
@@ -467,8 +575,8 @@ export default function FarmingGame() {
 
     // Standard event emitted by MetaMask
     window.addEventListener("ethereum#initialized", applyState, { once: true });
-    // Fallback: one final check after DOMContentLoaded + 200ms (covers slow extensions)
-    const t = setTimeout(applyState, 200);
+    // Fallback: immediate check (no delay for fast wallet detection)
+    const t = setTimeout(applyState, 0);
 
     // Mobile wallet detection via Capacitor App plugin
     if (isMobile) {
@@ -529,109 +637,76 @@ export default function FarmingGame() {
     return () => { sub.then(s => s.remove()); };
   }, []);
 
-  // â”€â”€ Connect Phantom - INSTANT popup, user gesture preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const connectPhantom = async () => {
+  // â”€â”€ Connect Phantom - SIMPLE, no async/await â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const connectPhantom = () => {
     const w = window as any;
     const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.phantom?.solana ?? w.solana;
     const injected = !!(sol?.connect && (sol.isPhantom || w.phantom?.solana?.isPhantom));
 
-    // 1. Injected provider (desktop extension OR Phantom in-app browser)
     if (injected) {
-      setConnectingWallet("phantom");
-      try {
-        let res: any;
-        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
+      sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
-        await _onWalletConnected(pk.toString(), "solana", sol);
-      } catch (e: any) {
+        _onWalletConnected(pk.toString(), "solana", sol);
+      }).catch((e: any) => {
         console.error("[Phantom]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });
-      } finally {
-        setConnectingWallet(null);
-      }
+      });
       return;
     }
 
-    // 2. Mobile (Capacitor native or mobile browser) — use deep link
     if (isMobile || isNative) {
-      setConnectingWallet("phantom");
-      stateRef.current.notification = { text: "OPENING PHANTOM WALLET...", life: 200 };
-      setDs({ ...stateRef.current });
-      setTimeout(() => setConnectingWallet(null), 3000);
       openWalletDeepLink("phantom");
       return;
     }
 
-    // 3. Desktop without extension
     stateRef.current.notification = { text: "PHANTOM NOT INSTALLED - GET IT AT PHANTOM.APP", life: 150 };
     setDs({ ...stateRef.current });
   };
-  const connectSolflare = async () => {
+  const connectSolflare = () => {
     const w = window as any;
     const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.solflare ?? w.solana;
     const injected = !!(sol?.connect && (w.solflare?.isSolflare || sol?.isSolflare));
     if (injected) {
-      setConnectingWallet("solflare");
-      try {
-        let res: any;
-        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
+      sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
-        await _onWalletConnected(pk.toString(), "solana", sol);
-      } catch (e: any) {
+        _onWalletConnected(pk.toString(), "solana", sol);
+      }).catch((e: any) => {
         console.error("[Solflare]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });
-      } finally {
-        setConnectingWallet(null);
-      }
+      });
       return;
     }
     if (isMobile || isNative) {
-      setConnectingWallet("solflare");
-      stateRef.current.notification = { text: "OPENING SOLFLARE WALLET...", life: 200 };
-      setDs({ ...stateRef.current });
-      setTimeout(() => setConnectingWallet(null), 3000);
       openWalletDeepLink("solflare");
       return;
     }
     stateRef.current.notification = { text: "SOLFLARE NOT INSTALLED - GET IT AT SOLFLARE.COM", life: 150 };
     setDs({ ...stateRef.current });
   };
-  const connectBackpack = async () => {
+  const connectBackpack = () => {
     const w = window as any;
     const isNative = !!(w.Capacitor?.isNativePlatform?.());
     const sol = w.backpack ?? w.solana;
     const injected = !!(sol?.connect && w.backpack?.isBackpack);
     if (injected) {
-      setConnectingWallet("backpack");
-      try {
-        let res: any;
-        try { res = await sol.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-        if (!res?.publicKey && !sol.publicKey) res = await sol.connect();
+      sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
-        await _onWalletConnected(pk.toString(), "solana", sol);
-      } catch (e: any) {
+        _onWalletConnected(pk.toString(), "solana", sol);
+      }).catch((e: any) => {
         console.error("[Backpack]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });
-      } finally {
-        setConnectingWallet(null);
-      }
+      });
       return;
     }
     if (isMobile || isNative) {
-      setConnectingWallet("backpack");
-      stateRef.current.notification = { text: "OPENING BACKPACK WALLET...", life: 200 };
-      setDs({ ...stateRef.current });
-      setTimeout(() => setConnectingWallet(null), 3000);
       openWalletDeepLink("backpack");
       return;
     }
@@ -645,9 +720,9 @@ export default function FarmingGame() {
       if (mobilePhantom?.isPhantom && typeof mobilePhantom.connect === "function") {
         setConnectingWallet("web3");
         try {
-          let res: any;
-          try { res = await mobilePhantom.connect({ onlyIfTrusted: true }); } catch { /* not trusted yet */ }
-          if (!res?.publicKey && !mobilePhantom.publicKey) res = await mobilePhantom.connect();
+
+        const res = await mobilePhantom.connect();
+
           const pk = res?.publicKey ?? mobilePhantom.publicKey;
           if (!pk) throw new Error("No public key returned");
           await _onWalletConnected(pk.toString(), "solana", mobilePhantom);
@@ -722,9 +797,13 @@ export default function FarmingGame() {
     setDs({ ...stateRef.current });
 
     // 2. Background: signature + supabase + NFT check â€” all parallel, non-blocking
-    setTimeout(() => {
-      if (stateRef.current.currentMap !== "home") doSwitchMap("home");
-    }, 300);
+    // Switch to home map immediately (no delay)
+    if (stateRef.current.currentMap !== "home") doSwitchMap("home");
+
+    // Register devnet hooks so GameEngine can fire on-chain LFG rewards
+    if (addr && provider) {
+      registerDevnetHooks({ walletAddress: addr, provider });
+    }
 
     // loadProgress runs immediately — no waiting on sign message or NFT check
     loadProgress(addr).then(() => {
@@ -762,6 +841,7 @@ export default function FarmingGame() {
     setWalletType(null);
     walletProviderRef.current = null;
     lastSyncedGoldRef.current = 0;
+    unregisterDevnetHooks();
     localStorage.removeItem("wallet_addr");
     localStorage.removeItem("wallet_type");
     stateRef.current.player.walletAddress = "";
@@ -805,6 +885,16 @@ export default function FarmingGame() {
       }
       if (!loaded) applyStoredQuestClaims(stateRef.current, addr);
       setInitialLoadComplete(true);
+      // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value)
+      if (!addr.startsWith("guest")) {
+        fetchDevnetLFGBalance(addr).then(bal => {
+          if (bal > 0) {
+            stateRef.current.player.gold = Math.floor(bal);
+            stateRef.current.player.lifetopiaGold = bal;
+            setDs({ ...stateRef.current });
+          }
+        }).catch(() => {});
+      }
     } catch (e) {
       console.warn("[Persistence] Load error:", e);
       setInitialLoadComplete(true);
@@ -850,18 +940,14 @@ export default function FarmingGame() {
     return () => clearInterval(timer);
   }, [nfts]);
 
-  // Auto-restore wallet from localStorage
+  // Auto-restore wallet from localStorage - DISABLED to prevent stale connections
   useEffect(() => {
-    const addr = localStorage.getItem("wallet_addr");
-    const type = localStorage.getItem("wallet_type");
-    if (addr) {
-      setWalletAddress(addr);
-      setWalletType(type === "solana" ? "solana" : "evm");
-      setWalletConnected(true);
-      stateRef.current.player.walletAddress = addr;
-      setInitialLoadComplete(false);
-      loadProgress(addr).then(() => setDs({ ...stateRef.current }));
-    }
+    // Clear stale wallet data to ensure CONNECT WALLET button always appears
+    localStorage.removeItem("wallet_addr");
+    localStorage.removeItem("wallet_type");
+    setWalletConnected(false);
+    setWalletAddress("");
+    setWalletType(null);
   }, []);
 
   // â”€â”€ Map ambient audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -913,40 +999,69 @@ export default function FarmingGame() {
     channel.on("presence", { event: "sync" }, flushOthers);
     channel.on("presence", { event: "join" }, flushOthers);
     channel.on("presence", { event: "leave" }, flushOthers);
-    const iv = setInterval(pushPresence, 450);
+    const iv = setInterval(pushPresence, 320);
     return () => { clearInterval(iv); void channel.unsubscribe(); };
   }, [ds.currentMap, splashDone, introTutorialDone, walletAddress]);
 
   // â”€â”€ NFT claim â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const claimNFT = async () => {
-    const addr = walletAddress || localStorage.getItem("wallet_addr");
-    if (!addr) { stateRef.current.notification = { text: "CONNECT WALLET FIRST!", life: 120 }; setDs({ ...stateRef.current }); return; }
-    stateRef.current.notification = { text: "CLAIMING TOKEN...", life: 300 };
-    setDs({ ...stateRef.current });
-    const result = await transferTokenToUser(addr, 10);
-    if (result.success) {
-      const newNft = `ALPHA NFT #${nfts.length + 1} | ID: ${result.txid?.slice(0, 6)}`;
-      const updatedNfts = [...nfts, newNft];
-      setNfts(updatedNfts);
-      
-      const onChainBalance = await getTokenBalance(addr);
-      stateRef.current.player.lifetopiaGold = onChainBalance;
-      stateRef.current.player.nftEligibility = false; // Claimed
-      
-      const claimText = "ALPHA NFT CLAIMED!";
-      stateRef.current.notification = { text: claimText, life: 3500 };
-      triggerPopup(claimText);
+    const addr = (walletAddress || localStorage.getItem("wallet_addr") || "").trim();
+    if (!addr || addr.toLowerCase().startsWith("guest")) {
+      stateRef.current.notification = { text: "CONNECT SOLANA WALLET FIRST!", life: 120 };
       setDs({ ...stateRef.current });
-
-      try {
-        await supabase.from("players").update({ 
-          nfts: updatedNfts, 
-          nft_eligibility: false,
-          gold: stateRef.current.player.gold 
-        }).eq("wallet_address", addr);
-      } catch { /* non-fatal sync */ }
-    } else {
-      stateRef.current.notification = { text: result.error?.slice(0, 40).toUpperCase() || "CLAIM FAILED", life: 150 };
+      return;
+    }
+    if (!walletProviderRef.current) {
+      stateRef.current.notification = { text: "OPEN WALLET PANEL AND CONNECT", life: 120 };
+      setDs({ ...stateRef.current });
+      return;
+    }
+    stateRef.current.notification = { text: "MINTING ALPHA PASS (+LFG)...", life: 300 };
+    setDs({ ...stateRef.current });
+    try {
+      await fundTreasuryIfNeeded().catch(() => {});
+      const { devnetMintToPlayer } = await import("../game/devnetTransactions");
+      const res = await devnetMintToPlayer(addr, 10, "alpha-claim", walletProviderRef.current);
+      if (res.success && res.txid) {
+        setLastTxId(res.txid);
+        setShowTxPopup(true);
+        const updatedNfts = [...nfts, `ALPHA PASS | ${res.txid.slice(0, 10)}…`];
+        setNfts(updatedNfts);
+        const onChainBalance = await fetchDevnetLFGBalance(addr);
+        stateRef.current.player.lifetopiaGold = onChainBalance;
+        stateRef.current.player.gold = Math.floor(onChainBalance);
+        setDevnetLFGBalance(onChainBalance);
+        stateRef.current.player.nftEligibility = false;
+        const hasUtility = await checkSolanaNFT(addr);
+        const boost = applyNFTBoostsToState(hasUtility);
+        stateRef.current.farmingSpeedMultiplier = boost.farmingSpeedMultiplier;
+        stateRef.current.nftBoostActive = boost.nftBoostActive;
+        const claimText = "ALPHA PASS RECEIVED — LFG ON DEVNET!";
+        stateRef.current.notification = { text: claimText, life: 160 };
+        triggerPopup(claimText);
+        AudioManager.playSFX("wallet", 0.55);
+        setDs({ ...stateRef.current });
+        try {
+          await supabase.from("players").update({
+            nfts: updatedNfts,
+            nft_eligibility: false,
+            gold: stateRef.current.player.gold,
+          }).eq("wallet_address", addr);
+        } catch {
+          /* non-fatal */
+        }
+      } else {
+        stateRef.current.notification = {
+          text: (res.error || "CLAIM FAILED").toUpperCase().slice(0, 48),
+          life: 160,
+        };
+        setDs({ ...stateRef.current });
+      }
+    } catch (e: any) {
+      stateRef.current.notification = {
+        text: (e?.message || "CLAIM FAILED").toUpperCase().slice(0, 48),
+        life: 140,
+      };
       setDs({ ...stateRef.current });
     }
   };
@@ -976,9 +1091,12 @@ export default function FarmingGame() {
       if (e.key === "0") n = 10;
       if (n >= 1 && n <= TOOL_IDS.length) {
         if (stateRef.current.currentMap === "garden" && n >= 1 && n <= 4) {
-          const emotes = ["wave","dance","sit","laugh"] as const;
+          const emotes = ["wave", "dance", "sit", "laugh"] as const;
           stateRef.current.player.emote = emotes[n - 1];
-          stateRef.current.player.emoteUntil = stateRef.current.time + 2800;
+          stateRef.current.player.emoteUntil = stateRef.current.time + 3200;
+          AudioManager.init();
+          AudioManager.playSFX("click", 0.35);
+          if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(18);
         } else {
           stateRef.current.player.tool = TOOL_IDS[n - 1] as any;
         }
@@ -1115,6 +1233,16 @@ export default function FarmingGame() {
         stateRef.current.notification = { text: `NO ${cropName} SEEDS - BUY FROM CITY SHOP!`, life: 160 };
         setDs({ ...stateRef.current });
         // Still select the tool so user knows what they picked
+      } else {
+        // AUTO-PLANT: Find first available tilled plot and plant immediately
+        const availablePlot = stateRef.current.farmPlots.find(p => p.tilled && !p.crop);
+        if (availablePlot) {
+          // Plant directly on the first available tilled plot
+          stateRef.current.player.tool = toolId as any;
+          stateRef.current = handleToolAction(stateRef.current);
+          setDs({ ...stateRef.current });
+          return;
+        }
       }
     }
     stateRef.current.player.tool = toolId as any;
@@ -1234,6 +1362,8 @@ export default function FarmingGame() {
       setCoinBursts(prev => [...prev, { id: burstId, sx: br.left + br.width / 2 - root.left, sy: br.top + br.height / 2 - root.top, tx: gr.left + gr.width / 2 - root.left, ty: gr.top + gr.height / 2 - root.top }]);
       window.setTimeout(() => setCoinBursts(prev => prev.filter(b => b.id !== burstId)), 750);
     }
+    // Fire on-chain LFG burn for shop purchase (50% of gold spent)
+    onShopPurchase(id, effPrice).catch(e => console.warn("[FarmingGame] onShopPurchase:", e.message));
     setDs({ ...stateRef.current });
   };
 
@@ -1243,10 +1373,10 @@ export default function FarmingGame() {
 
   // â”€â”€ Map context hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const MAP_REASON: Record<string, string> = {
-    city:     "CITY SHOP - Walk to SHOP, tap to enter. Or tap SHOP button. Buy seeds for your farm.",
-    fishing:  "FISHING - Walk to the water, use CAST / PULL buttons",
-    garden:   "GARDEN - Walk around and explore",
-    suburban: "SUBURBAN - Walk to benches and signs to interact",
+    city:     "ALPHA — Seeds & GOLD loop. Walk to SHOP signs or tap SHOP.",
+    fishing:  "Relax by the water — CAST, wait for a bite, PULL to reel.",
+    garden:   "Social hub — walk, meet others (presence). Keys 1–4 emote.",
+    suburban: "Cozy slice — explore; progression unlocks more maps.",
   };
   const mapHint = splashDone && introTutorialDone && ds.currentMap !== "home"
     ? MAP_REASON[ds.currentMap] ?? null : null;
@@ -1277,24 +1407,56 @@ export default function FarmingGame() {
         .gf { font-family: 'Press Start 2P', 'Courier New', monospace; }
         .gf { font-family: 'Press Start 2P', 'Courier New', Courier, monospace; }
         * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+        /* Wood panels — same family as pill buttons, thicker gold rim (Lifetopia / Avatar-style HUD) */
         .wood-panel {
-          background: linear-gradient(180deg, #CE9E64 0%, #8D5A32 100%);
-          border: 4px solid #5C4033; border-radius: 16px;
-          box-shadow: 0 12px 30px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.3);
+          background: linear-gradient(180deg, #D4B896 0%, #9D6B43 45%, #6D4C32 100%);
+          border: 4px solid #E8C547;
+          border-radius: 18px;
+          box-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 4px 0 #3d2918, inset 0 2px 5px rgba(255,255,255,0.35);
           position: relative;
         }
-        .gold-header { font-family: 'Press Start 2P', 'Courier New', Courier, monospace; background: #5C4033; border-radius: 10px 10px 0 0; padding: 10px 12px; color: #FFD700; text-shadow: 1px 1px #000; font-size: 10px; letter-spacing: 1px; }
+        .gold-header {
+          font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
+          background: linear-gradient(180deg, #5C4033 0%, #3E2723 100%);
+          border-radius: 14px 14px 0 0;
+          border: 3px solid #E8C547;
+          border-bottom: none;
+          padding: 10px 12px;
+          color: #FFFFFF;
+          text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+          font-size: 10px;
+          letter-spacing: 1px;
+        }
+        /* Primary pill buttons — DEVNET reference: warm brown gradient + thick gold ring + white label */
         .wb {
           font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
-          background: linear-gradient(180deg, #CE9E64 0%, #8D5A32 100%);
-          border: 3px solid #5C4033; border-radius: 999px; color: #FFF5E0; cursor: pointer;
-          box-shadow: 0 4px 0 #3a2212, inset 0 1px 1px rgba(255,255,255,0.45);
-          transition: all 0.08s ease; padding: 8px 14px; font-size: 8px; text-shadow: 1px 1px 1px #000;
+          font-weight: bold;
+          background: linear-gradient(180deg, #D4B896 0%, #B8895A 42%, #7A5234 100%);
+          border: 4px solid #F4D03F;
+          border-radius: 999px;
+          color: #FFFFFF;
+          cursor: pointer;
+          box-shadow: 0 5px 0 #2f1f10, inset 0 2px 3px rgba(255,255,255,0.5);
+          transition: transform 0.07s ease, box-shadow 0.07s ease, filter 0.12s ease;
+          padding: 9px 16px;
+          font-size: 8px;
+          text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
           touch-action: manipulation;
         }
-        .wb:hover { background: linear-gradient(180deg, #D9B380 0%, #AD7D54 100%); transform: translateY(-2px); box-shadow: 0 6px 0 #3a2212; }
-        .wb:active { transform: translateY(2px); box-shadow: 0 2px 0 #3a2212; }
-        .wb.active { background: linear-gradient(180deg, #FFD700 0%, #C8A020 100%); color: #3E2723; box-shadow: 0 0 15px rgba(255,215,0,0.5); text-shadow: none; }
+        .wb:hover {
+          background: linear-gradient(180deg, #E8D4B8 0%, #C9A06E 45%, #8B5E3F 100%);
+          filter: brightness(1.05);
+          transform: translateY(-2px);
+          box-shadow: 0 7px 0 #2f1f10, inset 0 2px 4px rgba(255,255,255,0.55);
+        }
+        .wb:active { transform: translateY(3px); box-shadow: 0 2px 0 #2f1f10; filter: brightness(0.96); }
+        .wb.active {
+          background: linear-gradient(180deg, #FFE082 0%, #F4D03F 40%, #C9A227 100%);
+          border-color: #FFF8E1;
+          color: #3E2723;
+          text-shadow: 1px 1px 0 rgba(255,255,255,0.35);
+          box-shadow: 0 0 18px rgba(255, 215, 0, 0.45), 0 5px 0 #5d4a16;
+        }
         .tray { background: linear-gradient(180deg, #A07844 0%, #7B502C 100%); padding: 12px 20px; border-radius: 50px; border: 4px solid #5C4033; box-shadow: 0 10px 0 rgba(0,0,0,0.5), inset 0 2px 8px rgba(255,255,255,0.25); display: flex; gap: 8px; }
         .slot { width: 58px; height: 58px; background: linear-gradient(135deg, #8B5E3C 0%, #5E3A24 100%); border: 3px solid #4D2D18; border-radius: 50%; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; transition: all 0.1s; box-shadow: inset 0 0 10px rgba(0,0,0,0.7), 0 3px 6px rgba(0,0,0,0.3); touch-action: manipulation; }
         .slot:hover { transform: translateY(-3px) scale(1.05); border-color: #FFD700; box-shadow: 0 5px 12px rgba(255,215,0,0.25), inset 0 0 8px rgba(0,0,0,0.5); }
@@ -1310,8 +1472,8 @@ export default function FarmingGame() {
         @keyframes coinFlyToHud { from { transform: translate(0,0) scale(1); opacity: 1; } to { transform: translate(var(--cdx), var(--cdy)) scale(0.25); opacity: 0; } }
         @keyframes toolGlow { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.8); } 50% { box-shadow: 0 0 25px 15px rgba(255,255,255,0.5); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.8); } }
         .glowing-tool { animation: toolGlow 1.5s infinite; z-index: 10000; border-radius: 50%; }
-        .slot-tooltip { display: none; position: absolute; bottom: calc(100% + 22px); left: 50%; transform: translateX(-50%); background: rgba(30,18,8,0.97); border: 2px solid #8D5A32; border-radius: 8px; padding: 7px 10px; white-space: nowrap; z-index: 99999; pointer-events: none; min-width: 120px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.7); }
-        .slot-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #8D5A32; }
+        .slot-tooltip { display: none; position: absolute; bottom: calc(100% + 22px); left: 50%; transform: translateX(-50%); background: rgba(30,18,8,0.97); border: 3px solid #E8C547; border-radius: 10px; padding: 7px 10px; white-space: nowrap; z-index: 99999; pointer-events: none; min-width: 120px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.7); color: #FFF5E0; text-shadow: 1px 1px 0 #000; }
+        .slot-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #E8C547; }
         .slot:hover .slot-tooltip { display: block; }
         @keyframes farmStatusPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
         .farm-status-bar { animation: farmStatusPulse 3s infinite; }
@@ -1559,11 +1721,6 @@ export default function FarmingGame() {
             AudioManager.playSFX("click");
             setShowWorldMap(false);
           }}
-          currentMap={ds.currentMap}
-          playerLevel={ds.player.level}
-          walletType={walletType}
-          onOpenWallet={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
-          onOpenDevnet={() => { setActivePanel("devnet"); AudioManager.playSFX("click"); }}
         />
       )}
 
@@ -1663,7 +1820,7 @@ export default function FarmingGame() {
       )}
 
       {/* â”€â”€ DESKTOP TOP NAV â”€â”€ */}
-      {!isMobile && splashDone && introTutorialDone && worldMapDone && !showWorldMap && (
+      {!isMobile && !showWorldMap && (
         <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 8, alignItems: "center" }}>
           {/* â”€â”€ MAP BUTTON â”€â”€ */}
           <button
@@ -1772,6 +1929,7 @@ export default function FarmingGame() {
         </div>
       )}
 
+
       {/* â”€â”€ MAP CONTEXT HINT (non-farm maps) â”€â”€ */}
       {mapHint && !activePanel && (
         <div style={{
@@ -1801,7 +1959,7 @@ export default function FarmingGame() {
       )}
 
       {/* â”€â”€ DESKTOP TOOL TRAY + BOOST BUTTON â”€â”€ */}
-      {!isMobile && splashDone && introTutorialDone && worldMapDone && !showWorldMap && (
+      {!isMobile && !showWorldMap && (
         <div style={{ position: "absolute", bottom: 100, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, pointerEvents: "auto" }}
           onClick={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
@@ -2255,32 +2413,114 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ DEVNET PANEL â”€â”€ */}
+              {/* DEVNET PANEL */}
               {activePanel === "devnet" && (
-                <div style={{ background: "#1a0f08", padding: "2px 0", display: "flex", flexDirection: "column", gap: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginBottom: 4 }}>TOKEN MINT</div>
-                  <div style={{ fontSize: isMobile ? 4 : 5, color: "#FFFFFF", wordBreak: "break-all", lineHeight: 1.8 }}>
-                    {TOKEN_MINT}
+                <div style={{ background: "#1a0f08", padding: "4px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="gf" style={{ fontSize: 8, color: "#D4AF37", letterSpacing: 1, textAlign: "center" }}>◎ SOLANA DEVNET</div>
+                  <div className="gf" style={{ fontSize: isMobile ? 4 : 5, color: "rgba(255,255,255,0.4)", textAlign: "center", wordBreak: "break-all" }}>
+                    {DEVNET_TOKEN_MINT}
                   </div>
-                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginTop: 6, marginBottom: 4 }}>NETWORK</div>
-                  <div style={{ fontSize: isMobile ? 6 : 7, color: "#FFFFFF" }}>Solana Devnet</div>
-                  <div style={{ fontSize: isMobile ? 4 : 5, color: "rgba(255,255,255,0.5)" }}>https://api.devnet.solana.com</div>
-                  <div style={{ fontSize: 7, color: "#D4AF37", letterSpacing: 1, marginTop: 6, marginBottom: 4 }}>GOLD SYNC</div>
-                  <div style={{ fontSize: isMobile ? 5 : 6, color: "#FFFFFF", lineHeight: 1.8 }}>
-                    {walletConnected && !walletAddress.startsWith("guest") ? (
-                      <>
-                        <div>In-game gold syncs to blockchain</div>
-                        <div style={{ marginTop: 4 }}>MINT on earn gold</div>
-                        <div style={{ marginTop: 2 }}>BURN on spend gold</div>
-                      </>
-                    ) : (
-                      <div style={{ color: "rgba(255,255,255,0.5)" }}>Connect wallet to enable sync</div>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 5, color: "rgba(0,0,0,0.4)", marginTop: 8 }}>LIFETOPIA WORLD | DEVNET BUILD</div>
+                  {walletConnected && !walletAddress.startsWith("guest") && (
+                    <div className="gf" style={{ fontSize: isMobile ? 5 : 6, color: "#9D7BFF", textAlign: "center" }}>
+                      LFG: {devnetLFGBalance.toFixed(2)}
+                    </div>
+                  )}
+                  <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
+
+                  {/* TX 1: Airdrop */}
+                  <button
+                    className="wb gf"
+                    disabled={!!devnetTxBusy}
+                    onClick={devnetAirdrop}
+                    style={{ fontSize: isMobile ? 6 : 7, padding: "10px 14px", opacity: devnetTxBusy === "airdrop" ? 0.6 : 1 }}
+                  >
+                    {devnetTxBusy === "airdrop" ? "SENDING..." : "◎ AIRDROP +5 LFG"}
+                  </button>
+                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint 5 LFG to wallet on devnet</div>
+
+                  <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
+
+                  {/* TX 2: Harvest Claim */}
+                  <button
+                    className="wb gf"
+                    disabled={!!devnetTxBusy}
+                    onClick={devnetHarvestClaim}
+                    style={{ fontSize: isMobile ? 6 : 7, padding: "10px 14px", opacity: devnetTxBusy === "harvest" ? 0.6 : 1 }}
+                  >
+                    {devnetTxBusy === "harvest" ? "SENDING..." : "CLAIM HARVEST LFG"}
+                  </button>
+                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>mint LFG for ready crops on devnet</div>
+
+                  <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
+
+                  {/* TX 3: View Reference TX */}
+                  <button
+                    className="wb gf"
+                    onClick={devnetViewRefTx}
+                    style={{ fontSize: isMobile ? 6 : 7, padding: "10px 14px", background: "linear-gradient(180deg,#2d1060,#1a0a3a)", border: "2px solid #9D7BFF", color: "#9D7BFF", boxShadow: "0 4px 0 #1a0a3a" }}
+                  >
+                    ◎ VIEW DEVNET TX
+                  </button>
+                  <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>5Yad6ss2...PJSHzZ</div>
+
+                  {lastTxId && (
+                    <>
+                      <div style={{ height: 1, background: "rgba(212,175,55,0.25)", margin: "2px 0" }} />
+                      <div className="gf" style={{ fontSize: 5, color: "#D4AF37", textAlign: "center" }}>LAST TX</div>
+                      <button
+                        className="wb gf"
+                        onClick={() => setShowTxPopup(true)}
+                        style={{ fontSize: 4, padding: "6px 10px", wordBreak: "break-all", background: "rgba(0,0,0,0.3)", border: "1px solid #D4AF37", color: "#D4AF37", boxShadow: "none" }}
+                      >
+                        {lastTxId.slice(0,18)}...{lastTxId.slice(-6)}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP SOLSCAN TX POPUP */}
+      {showTxPopup && lastTxId && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowTxPopup(false)}
+        >
+          <div
+            className="wb"
+            style={{ background: "linear-gradient(180deg,#2d1a08,#1a0f04)", border: "3px solid #D4AF37", borderRadius: 12, padding: "20px 24px", maxWidth: isMobile ? "92vw" : 500, width: "100%", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 8px 0 #3a2212, 0 0 40px rgba(212,175,55,0.3)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="gf" style={{ fontSize: 9, color: "#D4AF37", textAlign: "center", letterSpacing: 1 }}>◎ DEVNET TX</div>
+            <div style={{ height: 1, background: "rgba(212,175,55,0.3)" }} />
+            <div className="gf" style={{ fontSize: isMobile ? 4 : 5, color: "#FFFFFF", wordBreak: "break-all", lineHeight: 2, textAlign: "center" }}>
+              {lastTxId}
+            </div>
+            <div style={{ height: 1, background: "rgba(212,175,55,0.3)" }} />
+            <iframe
+              src={`https://solscan.io/tx/${lastTxId}?cluster=devnet`}
+              style={{ width: "100%", height: isMobile ? 200 : 300, border: "2px solid #5C4033", borderRadius: 6, background: "#111" }}
+              title="Solscan TX"
+            />
+            <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.35)", textAlign: "center" }}>solscan.io — devnet</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <a
+                href={`https://solscan.io/tx/${lastTxId}?cluster=devnet`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wb gf"
+                style={{ flex: 1, fontSize: isMobile ? 6 : 7, padding: "10px", textAlign: "center", textDecoration: "none", color: "#9D7BFF", background: "linear-gradient(180deg,#2d1060,#1a0a3a)", border: "2px solid #9D7BFF", boxShadow: "0 4px 0 #1a0a3a", borderRadius: 6 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                OPEN BROWSER
+              </a>
+              <button className="wb gf" onClick={() => setShowTxPopup(false)} style={{ flex: 1, fontSize: isMobile ? 6 : 7, padding: "10px" }}>
+                CLOSE
+              </button>
             </div>
           </div>
         </div>
@@ -2419,7 +2659,3 @@ export default function FarmingGame() {
     </div>
   );
 }
-
-
-
-

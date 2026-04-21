@@ -27,7 +27,6 @@ export function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      console.log(`[ImageLoader] Loaded: ${src} (${img.naturalWidth}x${img.naturalHeight})`);
       imgs[src] = img;
       resolve(img);
     };
@@ -160,11 +159,26 @@ export function renderGame(
     drawGardenFountain(ctx, state);
     drawGardenRemotePlayers(ctx, state);
     drawNPCs(ctx, state);
+    drawGardenOverlay(ctx, state);
+  }
+  
+  if (state.currentMap === "home") {
+    drawNPCs(ctx, state);
+  }
+  
+  if (state.currentMap === "fishing") {
+    drawNPCs(ctx, state);
+  }
+  
+  if (state.currentMap === "suburban") {
+    drawNPCs(ctx, state);
   }
   
   if (state.currentMap === "city") {
+    drawCityLanternGlow(ctx, state);
     drawShopZones(ctx, state);
     drawShopkeeperBubble(ctx, state);
+    drawCityNPCs(ctx, state);
   }
   
   if (state.currentMap === "suburban") {
@@ -172,6 +186,10 @@ export function renderGame(
   }
 
   drawFootprints(ctx, state);
+  
+  // Fake multiplayer layer - draw ghost avatars
+  drawFakePlayers(ctx, state);
+  
   drawPlayer(ctx, state);
   
   if (state.currentMap === "fishing")
@@ -180,12 +198,15 @@ export function renderGame(
   // FOREGROUND PARALLAX
   drawParallaxForeground(ctx, state);
 
-  // AVATAR WORLD AMBIENT — world-space effects (disabled if causing issues)
+  // AVATAR WORLD AMBIENT — birds on all outdoor maps; mist + fireflies off city (cleaner skyline)
+  drawBirds(ctx, state);
   if (state.currentMap !== "city") {
-    drawBirds(ctx, state);
     drawGroundMist(ctx, state);
     drawAmbientFireflies(ctx, state);
   }
+  
+  // Ambient particles for living world feel
+  drawAmbientParticles(ctx, state);
 
   drawVFX(ctx, state);
   drawDamageNumbers(ctx, state);
@@ -201,11 +222,14 @@ export function renderGame(
   // Day/night cycle tint — applied over the whole screen
   drawDayCycleTint(ctx, state, W, H);
 
-  if (state.currentMap === "garden" && state.gardenActivePlayers >= 0) {
-    drawGardenPlayersHud(ctx, state, W, H);
-  }
+  // Activity feed for fake multiplayer illusion (disabled on farm)
+  drawActivityFeed(ctx, state);
 
-  drawMiniMap(ctx, state, W, H);
+  // Disabled realtime multiplayer alert
+  // if (state.currentMap === "garden" && state.gardenActivePlayers >= 0) {
+  //   drawGardenPlayersHud(ctx, state, W, H);
+  // }
+
   drawLifeParticles(ctx, state, W, H);
   drawMapTransition(ctx, state, W, H);
 }
@@ -306,41 +330,6 @@ function drawParallaxForeground(ctx: CanvasRenderingContext2D, state: GameState)
   ctx.restore();
 }
 
-function drawMiniMap(ctx: CanvasRenderingContext2D, state: GameState, W: number, H: number) {
-  const size = 95;
-  const pad = 20;
-  const x = W - size - pad;
-  const y = pad;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.strokeStyle = "rgba(255,255,255,0.2)";
-  ctx.lineWidth = 2;
-  roundRect(ctx, 0, 0, size, size, 16);
-  ctx.fill();
-  ctx.stroke();
-  const mapWidth = MAP_SIZES[state.currentMap].w;
-  const mapHeight = MAP_SIZES[state.currentMap].h;
-  const scale = (size - 10) / Math.max(mapWidth, mapHeight);
-  const innerW = mapWidth * scale;
-  const innerH = mapHeight * scale;
-  const ox = (size - innerW) / 2;
-  const oy = (size - innerH) / 2;
-  ctx.fillStyle = "rgba(255,255,255,0.1)";
-  ctx.fillRect(ox, oy, innerW, innerH);
-  const dotX = ox + state.player.x * scale;
-  const dotY = oy + state.player.y * scale;
-  ctx.fillStyle = "#FFD700";
-  ctx.beginPath();
-  ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.font = 'bold 9px "Outfit", sans-serif';
-  ctx.textAlign = "center";
-  ctx.fillText(state.currentMap.toUpperCase(), size / 2, size - 8);
-  ctx.restore();
-}
-
 /** World-space gate toward Suburban — fog clears as player approaches */
 function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
   const scrollOffset = Math.floor(state.time / 60) % 64;
@@ -377,6 +366,9 @@ function drawWaterShimmer(ctx: CanvasRenderingContext2D, state: GameState) {
 
 function drawNPCs(ctx: CanvasRenderingContext2D, state: GameState) {
   for (const n of state.npcs) {
+    // Only draw NPCs for the current map
+    if (n.map && n.map !== state.currentMap) continue;
+    
     ctx.save();
     ctx.translate(n.x, n.y);
     
@@ -390,15 +382,25 @@ function drawNPCs(ctx: CanvasRenderingContext2D, state: GameState) {
     
     ctx.translate(0, -by);
     
-    // Body (Simplified sprite for now)
-    ctx.fillStyle = n.color;
-    roundRect(ctx, -12, -35, 24, 35, 6);
-    ctx.fill();
+    // Use real 2D character sprite instead of colored rectangle
+    const walkCycle = Math.floor((state.time / 180) % 4);
+    const walkFrames = ["/player_walk1.png", "/jalan_kaki_10_tengah_langkah.png", "/player_walk2.png", "/jalan_kaki_11_akhir_langkah.png"];
+    const sprite = imgs[walkFrames[walkCycle]];
     
-    // Eyes
-    ctx.fillStyle = "#000";
-    ctx.fillRect(-6, -28, 3, 3);
-    ctx.fillRect(3, -28, 3, 3);
+    if (sprite?.complete && sprite.naturalWidth > 0) {
+      const h = 40, w = h * (sprite.naturalWidth / sprite.naturalHeight);
+      ctx.drawImage(sprite, -w / 2, -h + 4, w, h);
+    } else {
+      // Fallback to colored rectangle if sprite not loaded
+      ctx.fillStyle = n.color;
+      roundRect(ctx, -12, -35, 24, 35, 6);
+      ctx.fill();
+      
+      // Eyes
+      ctx.fillStyle = "#000";
+      ctx.fillRect(-6, -28, 3, 3);
+      ctx.fillRect(3, -28, 3, 3);
+    }
     
     // Waving arm
     if (n.state === "waving") {
@@ -781,8 +783,8 @@ function drawFarmPlots(
          ctx.restore();
       });
 
-      // Granular Soil Texture & Micro-pebbles
-      for(let i=0; i<15; i++) {
+      // Granular soil texture (kept light for FPS)
+      for (let i = 0; i < 8; i++) {
         const seed = (plot.gridX * 17 + plot.gridY * 23 + i * 37);
         const tx = cx + (Math.sin(seed) * cellW * 0.4);
         const ty = drawY + cellH/2 + (Math.cos(seed * 0.8) * cellH * 0.35);
@@ -894,12 +896,13 @@ function drawFarmPlots(
       // No crop name badge — let the plant speak for itself
       const imgId = `/${crop.type}.png`;
       const img = imgs[imgId];
-      if (imgId && !imgs[imgId]) loadImg(imgId);
+      // Images are preloaded in preloadAssets(), no need for lazy loading during render
 
       const currentStage = Math.max(0, Math.min(4, crop.stage));
-      const stageScales = [0.25, 0.55, 0.8, 1.0, 1.25];
-      const stageYOffsets = [6, 4, 2, 0, -8];
-      const stageImageSizes = [28, 40, 52, 60, 68];
+      /** Stage 0 must stay large — tiny scale hid seeds on the soil (Avatar-style clarity). */
+      const stageScales = [1.02, 0.62, 0.86, 1.02, 1.28];
+      const stageYOffsets = [0, 2, 1, 0, -8];
+      const stageImageSizes = [40, 44, 54, 62, 70];
       
       const baseScale = stageScales[currentStage];
       const baseYOffset = stageYOffsets[currentStage];
@@ -968,7 +971,7 @@ function drawFarmPlots(
       } else if (crop.dead) {
         ctx.globalAlpha *= 0.7; 
       } else if (currentStage === 0 && !plot.watered) {
-        ctx.globalAlpha *= 0.5;
+        ctx.globalAlpha *= 0.78;
       } else if (currentStage < 4 && plot.watered) {
         const pulse = 1 + Math.sin(now / 400) * 0.05;
         ctx.scale(pulse, pulse);
@@ -979,28 +982,41 @@ function drawFarmPlots(
       // Remove redundant cx,by translate here because it's already translated at line 961
       // Just keep it centered at (0,0) relative to the parent transform
       if (currentStage === 0) {
-        // Seed mound/packet visual - make it larger and more distinct
-        ctx.fillStyle = "#5D4037"; // Rich brown soil mound
-        ctx.beginPath(); ctx.ellipse(0, 0, 14, 8, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#8D6E63";
-        ctx.beginPath(); ctx.ellipse(-4, -2, 6, 3, -0.3, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#FFD700"; // Golden seed speckles for visibility
-        ctx.beginPath(); ctx.arc(0, -4, 2, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(4, -2, 1.5, 0, Math.PI * 2); ctx.fill();
-      } else if (currentStage === 1) {
-        const sway1 = Math.sin(now / 900 + plot.gridX * 1.3) * 0.035;
-        ctx.fillStyle = "#4E2B0E";
-        ctx.beginPath(); ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.save(); ctx.rotate(sway1);
-        ctx.strokeStyle = "#5D8A3C"; ctx.lineWidth = 2; ctx.lineCap = "round";
-        ctx.beginPath(); ctx.moveTo(0, -1); ctx.quadraticCurveTo(1, -10, 0, -18); ctx.stroke();
-        ctx.fillStyle = "#7CB342";
-        ctx.beginPath(); ctx.ellipse(-7, -14, 7, 4, -0.7, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(7, -16, 7, 4, 0.7, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#8BC34A";
-        ctx.beginPath(); ctx.ellipse(-7, -14, 5, 2.5, -0.7, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(7, -16, 5, 2.5, 0.7, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
+        // Fresh plant: visible mound + crop icon (always readable on tilled soil)
+        ctx.fillStyle = "#4E342E";
+        ctx.beginPath();
+        ctx.ellipse(0, 2, 22, 11, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#6D4C41";
+        ctx.beginPath();
+        ctx.ellipse(-5, 0, 10, 5, -0.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#A1887F";
+        ctx.beginPath();
+        ctx.ellipse(6, 1, 8, 4, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#FFECB3";
+        ctx.beginPath();
+        ctx.arc(-2, -6, 2.5, 0, Math.PI * 2);
+        ctx.arc(6, -4, 2, 0, Math.PI * 2);
+        ctx.arc(1, 2, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        const sprout = imgs[`/${crop.type}.png`];
+        if (sprout?.complete && sprout.naturalWidth > 0) {
+          const sp = 30;
+          ctx.drawImage(sprout, -sp / 2, -sp - 4, sp, sp);
+        } else {
+          // Fallback: draw colored circle based on crop type
+          const fallbackColor = cropColors[crop.type] || "#FFD700";
+          ctx.fillStyle = fallbackColor;
+          ctx.beginPath();
+          ctx.arc(0, -15, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.5)";
+          ctx.beginPath();
+          ctx.arc(-2, -17, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (currentStage === 2) {
         const sway2 = Math.sin(now / 750 + plot.gridX * 0.9) * 0.03;
         ctx.fillStyle = "#4E2B0E";
@@ -1035,13 +1051,30 @@ function drawFarmPlots(
           ctx.fillStyle = "rgba(102,187,106,0.45)";
           ctx.beginPath(); ctx.ellipse(-s3*0.5,-s3*0.4,8,4,-0.6,0,Math.PI*2); ctx.fill();
           ctx.beginPath(); ctx.ellipse(s3*0.5,-s3*0.6,8,4,0.6,0,Math.PI*2); ctx.fill();
+        } else {
+          // Fallback: draw larger colored circle for growing crop
+          const fallbackColor = cropColors[crop.type] || "#FFD700";
+          ctx.fillStyle = fallbackColor;
+          ctx.beginPath(); ctx.arc(0, -imageSize/2, imageSize/3, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "rgba(0,100,0,0.3)";
+          ctx.beginPath(); ctx.ellipse(-8, -imageSize/2 + 5, 10, 4, -0.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(8, -imageSize/2 + 5, 10, 4, 0.5, 0, Math.PI * 2); ctx.fill();
         }
         ctx.restore();
       } else {
         const sway4 = Math.sin(now / 550 + plot.gridX) * 0.02;
         const img4 = imgs[`/${crop.type}.png`];
         ctx.save(); ctx.rotate(sway4);
-        if (img4?.complete && img4.naturalWidth > 0) ctx.drawImage(img4, -imageSize/2, -imageSize, imageSize, imageSize);
+        if (img4?.complete && img4.naturalWidth > 0) {
+          ctx.drawImage(img4, -imageSize/2, -imageSize, imageSize, imageSize);
+        } else {
+          // Fallback: draw full-size colored circle for ready crop
+          const fallbackColor = cropColors[crop.type] || "#FFD700";
+          ctx.fillStyle = fallbackColor;
+          ctx.beginPath(); ctx.arc(0, -imageSize/2, imageSize/2.5, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.3)";
+          ctx.beginPath(); ctx.arc(-5, -imageSize/2 - 5, 4, 0, Math.PI * 2); ctx.fill();
+        }
         ctx.restore();
         for (let p = 0; p < 4; p++) {
           const ang4 = now/800 + p*Math.PI/2;
@@ -1282,6 +1315,31 @@ function drawFishingStruggleBar(ctx: CanvasRenderingContext2D, x: number, y: num
   ctx.fillStyle = "#FFF";
   ctx.fillText("REEL!", x, y - 5);
 }
+
+/** Soft warm pools under city shops — cozy “Avatar world” street lighting */
+function drawCityLanternGlow(ctx: CanvasRenderingContext2D, state: GameState) {
+  const t = state.time;
+  const spots = [
+    { x: 200, y: 452 },
+    { x: 520, y: 452 },
+    { x: 840, y: 452 },
+  ];
+  ctx.save();
+  for (let i = 0; i < spots.length; i++) {
+    const s = spots[i];
+    const pulse = 0.12 + Math.sin(t / 1400 + i * 1.7) * 0.06;
+    const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 140);
+    g.addColorStop(0, `rgba(255, 224, 160, ${pulse})`);
+    g.addColorStop(0.45, `rgba(255, 200, 120, ${pulse * 0.45})`);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y, 130, 52, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawShopZones(ctx: CanvasRenderingContext2D, state: GameState) {
   const shops = [
     { x: 200, y: 480, label: "SEEDS",  color: "#81C784" },
@@ -1332,6 +1390,11 @@ function drawShopZones(ctx: CanvasRenderingContext2D, state: GameState) {
     roundRect(ctx, -47, -15, 94, 30, 15);
     ctx.fillStyle = grad;
     ctx.fill();
+
+    ctx.strokeStyle = "#F4D03F";
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, -47, -15, 94, 30, 15);
+    ctx.stroke();
 
     // Inner top highlight
     ctx.fillStyle = "rgba(255,255,255,0.18)";
@@ -1632,6 +1695,33 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
   }
 
   ctx.restore(); // Restore S1 (translate x, y + jumpY)
+
+  // ── SOCIAL SIGNAL: Player Name and Level Above Avatar ──
+  ctx.save();
+  ctx.translate(x, y - 50);
+  
+  // Subtle breathing animation for name tag
+  const nameBounce = Math.sin(state.time / 500) * 2;
+  ctx.translate(0, nameBounce);
+  
+  // Name tag background
+  ctx.font = 'bold 8px "Outfit", sans-serif';
+  ctx.textAlign = "center";
+  
+  const playerName = "YOU";
+  const playerLevel = state.player.level;
+  const nameText = `${playerName} Lv${playerLevel}`;
+  
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillText(nameText, 1, -nameBounce + 1);
+  
+  // Main text with color based on level
+  const levelColor = playerLevel >= 10 ? "#FFD700" : playerLevel >= 5 ? "#64B5F6" : "#FFF";
+  ctx.fillStyle = levelColor;
+  ctx.fillText(nameText, 0, -nameBounce);
+  
+  ctx.restore();
 
   // ── SOCIAL EMOTE BUBBLES ──
   if (state.player.emoteBubble && state.time < state.player.emoteBubbleUntil) {
@@ -1969,22 +2059,29 @@ function drawFarmDebugOverlay(ctx: CanvasRenderingContext2D, state: GameState) {
 function drawMapLabels(ctx: CanvasRenderingContext2D, state: GameState) {
   const { currentMap, player } = state;
   const labels: Record<string, { x: number; y: number; text: string }[]> = {
-    city: [],
-    garden: [],
+    city: [
+      { x: 520, y: 380, text: "SHOP — SEEDS & PROGRESS" },
+      { x: 200, y: 420, text: "SEEDS" },
+      { x: 840, y: 420, text: "MARKET" },
+    ],
+    garden: [
+      { x: 520, y: 260, text: "GARDEN — PUBLIC ALPHA" },
+    ],
     suburban: [
       { x: 300, y: 300, text: "COZY RESIDENCE" },
       { x: 700, y: 250, text: "NEIGHBORHOOD" },
       { x: 520, y: 150, text: "QUIET AREA" },
     ],
     fishing: [
-      { x: 520, y: 240, text: "" },
-      { x: 200, y: 240, text: "CAST HERE" },
-      { x: 800, y: 240, text: "" },
+      { x: 520, y: 200, text: "FISHING — RELAX" },
+      { x: 200, y: 260, text: "CAST NEAR WATER" },
+      { x: 820, y: 280, text: "RARE IN DEEP" },
     ],
   };
 
   const mapList = labels[currentMap] || [];
   for (const l of mapList) {
+    if (!l.text) continue;
     const dist = Math.hypot(l.x - player.x, l.y - player.y);
     const alpha = Math.max(0.1, 1 - dist / 500);
     ctx.save();
@@ -2001,6 +2098,7 @@ function drawHologram(
   text: string,
   gameTime?: number,
 ) {
+  if (!text) return;
   // No box — just clean pixel text with drop shadow
   const dy = gameTime !== undefined ? Math.floor(Math.sin(gameTime / 600) * 3) : 0;
   ctx.save();
@@ -2271,7 +2369,7 @@ function drawAmbientFireflies(ctx: CanvasRenderingContext2D, state: GameState) {
   const { w, h } = MAP_SIZES[currentMap];
 
   // Spawn new fireflies
-  if (fireflies.length < 35 && Math.random() < 0.08) {
+  if (fireflies.length < 22 && Math.random() < 0.05) {
     const colors = ["#A8FF78", "#78FFD6", "#FFE878", "#B8FFAA", "#78E8FF"];
     fireflies.push({
       x: Math.random() * w,
@@ -2377,6 +2475,168 @@ function drawDayCycleTint(ctx: CanvasRenderingContext2D, state: GameState, W: nu
   ctx.restore();
 }
 
+function drawFakePlayers(ctx: CanvasRenderingContext2D, state: GameState) {
+  // Don't draw fake players on farm (home map) - only show player
+  if (state.currentMap === "home") return;
+  
+  for (const fp of state.fakePlayers) {
+    // Only draw fake players on current map
+    if (fp.map !== state.currentMap) continue;
+    
+    ctx.save();
+    ctx.translate(fp.x, fp.y);
+    
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,0.2)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 14, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Walking animation
+    const walkCycle = Math.floor((state.time / 180) % 4);
+    const walkFrames = ["/player_walk1.png", "/jalan_kaki_10_tengah_langkah.png", "/player_walk2.png", "/jalan_kaki_11_akhir_langkah.png"];
+    const sprite = imgs[walkFrames[walkCycle]];
+    
+    ctx.scale(fp.facing, 1);
+    if (sprite?.complete && sprite.naturalWidth > 0) {
+      const h = 38, w = h * (sprite.naturalWidth / sprite.naturalHeight);
+      ctx.drawImage(sprite, -w / 2, -h + 4, w, h);
+    }
+    ctx.scale(fp.facing, 1);
+    
+    // Name tag with level
+    ctx.font = 'bold 7px "Outfit", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillText(`${fp.name} Lv${fp.level}`, 1, -42);
+    ctx.fillStyle = fp.color;
+    ctx.fillText(`${fp.name} Lv${fp.level}`, 0, -43);
+    
+    ctx.restore();
+  }
+}
+
+function drawActivityFeed(ctx: CanvasRenderingContext2D, state: GameState) {
+  // Don't show activity feed on farm (home map)
+  if (state.currentMap === "home") return;
+  if (state.activityFeed.length === 0) return;
+  
+  const x = 20;
+  const startY = 100;
+  
+  ctx.save();
+  
+  for (let i = 0; i < Math.min(4, state.activityFeed.length); i++) {
+    const item = state.activityFeed[i];
+    const y = startY + i * 28;
+    const age = state.time - item.timestamp;
+    const opacity = Math.max(0, 1 - age / 60000);
+    
+    if (opacity <= 0) continue;
+    
+    // Slide-in animation for new items
+    const slideProgress = Math.min(1, age / 300);
+    const slideOffset = (1 - slideProgress) * -50;
+    
+    // Subtle pulse animation
+    const pulse = 1 + Math.sin(state.time / 500 + i) * 0.03;
+    
+    ctx.globalAlpha = opacity;
+    ctx.save();
+    ctx.translate(x + slideOffset, y);
+    ctx.scale(pulse, pulse);
+    
+    // Background with gradient
+    const gradient = ctx.createLinearGradient(0, 0, 220, 0);
+    gradient.addColorStop(0, "rgba(0,0,0,0.7)");
+    gradient.addColorStop(1, "rgba(50,50,50,0.5)");
+    ctx.fillStyle = gradient;
+    roundRect(ctx, 0, 0, 220, 24, 6);
+    ctx.fill();
+    
+    // Icon based on type with subtle bounce
+    let icon = "🌾";
+    if (item.type === "harvest") icon = "🌾";
+    else if (item.type === "plant") icon = "🌱";
+    else if (item.type === "level") icon = "⭐";
+    else if (item.type === "trade") icon = "💰";
+    
+    const iconBounce = Math.sin(state.time / 300 + i * 0.5) * 2;
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(icon, 8, 12 + iconBounce);
+    
+    // Text
+    ctx.font = '9px "Outfit", sans-serif';
+    ctx.fillStyle = "#FFF";
+    ctx.fillText(item.text, 28, 12);
+    
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  
+  ctx.restore();
+}
+
+function drawAmbientParticles(ctx: CanvasRenderingContext2D, state: GameState) {
+  for (const p of state.lifeParticles) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = p.life / p.maxLife;
+    
+    if (p.type === "butterfly") {
+      // Butterfly animation
+      const wingFlap = Math.sin(state.time / 100) * 0.5;
+      ctx.fillStyle = p.color;
+      
+      // Wings
+      ctx.save();
+      ctx.scale(1 + wingFlap, 1);
+      ctx.beginPath();
+      ctx.ellipse(-4, 0, 5, 3, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4, 0, 5, 3, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      
+      // Body
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.type === "leaf") {
+      // Floating leaf
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size, p.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,100,0,0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -p.size * 0.6);
+      ctx.lineTo(0, p.size * 0.6);
+      ctx.stroke();
+    } else if (p.type === "dust") {
+      // Dust particle
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.type === "petal") {
+      // Flower petal
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
+  }
+}
+
 function drawBirds(ctx: CanvasRenderingContext2D, state: GameState) {
   const { time, currentMap, cameraX, cameraY } = state;
   const { w } = MAP_SIZES[currentMap];
@@ -2428,28 +2688,46 @@ function drawBirds(ctx: CanvasRenderingContext2D, state: GameState) {
 }
 
 function drawGroundMist(ctx: CanvasRenderingContext2D, state: GameState) {
-  const { currentMap, time, cameraX, cameraY } = state;
-  if (currentMap !== "home") return;
+  const { currentMap, time } = state;
 
-  const { w, h } = MAP_SIZES[currentMap];
-  const mistY = h - 80;
-
-  ctx.save();
-  // Slow drifting mist bands
-  for (let i = 0; i < 4; i++) {
-    const drift = (time * 0.015 * (1 + i * 0.3) + i * 300) % (w + 400) - 200;
-    const bandW = 300 + i * 80;
-    const bandH = 18 + i * 6;
-    const alpha = 0.06 + i * 0.02;
-
-    const grd = ctx.createRadialGradient(drift + bandW / 2, mistY, 0, drift + bandW / 2, mistY, bandW / 2);
-    grd.addColorStop(0, `rgba(220,240,255,${alpha})`);
-    grd.addColorStop(1, "rgba(220,240,255,0)");
-
-    ctx.fillStyle = grd;
-    ctx.beginPath();
-    ctx.ellipse(drift + bandW / 2, mistY, bandW / 2, bandH, 0, 0, Math.PI * 2);
-    ctx.fill();
+  if (currentMap === "home") {
+    const { w, h } = MAP_SIZES.home;
+    const mistY = h - 80;
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const drift = (time * 0.015 * (1 + i * 0.3) + i * 300) % (w + 400) - 200;
+      const bandW = 300 + i * 80;
+      const bandH = 18 + i * 6;
+      const alpha = 0.06 + i * 0.02;
+      const grd = ctx.createRadialGradient(drift + bandW / 2, mistY, 0, drift + bandW / 2, mistY, bandW / 2);
+      grd.addColorStop(0, `rgba(220,240,255,${alpha})`);
+      grd.addColorStop(1, "rgba(220,240,255,0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(drift + bandW / 2, mistY, bandW / 2, bandH, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
   }
-  ctx.restore();
+
+  if (currentMap === "fishing") {
+    const { w, h } = MAP_SIZES.fishing;
+    const mistY = h - 88;
+    ctx.save();
+    for (let i = 0; i < 3; i++) {
+      const drift = (time * 0.011 * (1 + i * 0.22) + i * 210) % (w + 340) - 170;
+      const bandW = 240 + i * 65;
+      const bandH = 12 + i * 4;
+      const alpha = 0.045 + i * 0.012;
+      const grd = ctx.createRadialGradient(drift + bandW / 2, mistY, 0, drift + bandW / 2, mistY, bandW / 2);
+      grd.addColorStop(0, `rgba(190, 230, 255, ${alpha})`);
+      grd.addColorStop(1, "rgba(190, 230, 255, 0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(drift + bandW / 2, mistY, bandW / 2, bandH, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }

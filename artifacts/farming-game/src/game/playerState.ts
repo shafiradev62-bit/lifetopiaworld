@@ -1,8 +1,10 @@
+import { LIFETOPIA_ALPHA_MINT } from "./solanaConfig";
+
 /**
  * Global farming modifiers (NFT utility). Synced onto GameState for saves/UI.
+ * Same mint as on-chain LFG / Alpha utility (devnet).
  */
-export const ALPHA_NFT_MINT =
-  import.meta.env?.VITE_ALPHA_NFT_MINT || "";
+export const ALPHA_NFT_MINT = LIFETOPIA_ALPHA_MINT;
 
 export function getDefaultFarmingSpeedMultiplier(): number {
   return 1;

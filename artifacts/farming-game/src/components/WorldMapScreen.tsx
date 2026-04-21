@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import type { MapType } from "../game/Game";
+import { AudioManager } from "../game/AudioSystem";
 
 interface Props {
   onSelectMap: (map: MapType) => void;
-  currentMap: MapType;
-  playerLevel: number;
 }
 
 const MAP_W = 1600;
@@ -50,6 +49,7 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [pressedId, setPressedId] = useState<MapType | null>(null);
   const [flashId, setFlashId] = useState<MapType | null>(null);
+  const [hoveredId, setHoveredId] = useState<MapType | null>(null);
 
   // Editor state
   const [editorSpots, setEditorSpots] = useState(HOTSPOTS.map(h => ({ ...h })));
@@ -85,6 +85,7 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
 
   const triggerCinematic = (spot: typeof HOTSPOTS[0]) => {
     if (cine || pressedId) return;
+    AudioManager.playSFX("open", 0.28);
     setPressedId(spot.id);
     const t1 = setTimeout(() => setFlashId(spot.id), 900);
     const t2 = setTimeout(() => { onSelectMap(spot.id); setPressedId(null); setFlashId(null); }, 1500);
@@ -147,6 +148,7 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
         {spots.map((spot) => {
           const isPressed = pressedId === spot.id;
           const isFlash = flashId === spot.id;
+          const isHovered = !IS_EDITOR && hoveredId === spot.id && !isPressed;
           return (
             <div
               key={spot.id + "_bld"}
@@ -168,6 +170,8 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
                    ? "brightness(3) drop-shadow(0 0 40px #fff)"
                    : isPressed
                    ? "drop-shadow(0 1px 3px rgba(0,0,0,0.9)) drop-shadow(0 1px 2px rgba(0,0,0,0.7)) brightness(0.8)"
+                   : isHovered
+                   ? "drop-shadow(0 10px 20px rgba(0,0,0,0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.4)) brightness(1.08)"
                    : "drop-shadow(0 10px 20px rgba(0,0,0,0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
                 transformOrigin: "center bottom",
               }}
@@ -189,6 +193,13 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
           return (
             <div
               key={spot.id}
+              onMouseEnter={() => {
+                if (IS_EDITOR || cine || pressedId) return;
+                setHoveredId(spot.id);
+              }}
+              onMouseLeave={() => {
+                setHoveredId((h) => (h === spot.id ? null : h));
+              }}
               onMouseDown={(e) => {
                 if (!IS_EDITOR) return;
                 e.stopPropagation(); setSelId(spot.id);
@@ -231,9 +242,14 @@ export default function WorldMapScreen({ onSelectMap }: Props) {
       {!cine && !IS_EDITOR && (
         <div style={{
           position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
-          fontFamily: "'Press Start 2P', monospace", fontSize: 8,
-          color: "rgba(255,215,0,0.7)", textShadow: "1px 1px 0 #000",
+          fontFamily: "'Press Start 2P', monospace", fontSize: 7,
+          color: "#FFFFFF", fontWeight: "bold",
+          textShadow: "1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000",
           pointerEvents: "none", whiteSpace: "nowrap",
+          padding: "10px 20px", borderRadius: 999,
+          background: "linear-gradient(180deg,#D4B896 0%,#B8895A 45%,#7A5234 100%)",
+          border: "4px solid #F4D03F",
+          boxShadow: "0 5px 0 #2f1f10, inset 0 2px 3px rgba(255,255,255,0.4)",
         }}>TAP A LOCATION TO TRAVEL</div>
       )}
 
