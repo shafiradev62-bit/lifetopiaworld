@@ -25,8 +25,9 @@ import PreFarmTutorial from "../components/tutorial/PreFarmTutorial";
 import { initializeTokenAccount } from "../game/solanaToken";
 import {
   registerDevnetHooks, unregisterDevnetHooks, onShopPurchase,
-  fetchDevnetLFGBalance, DEVNET_TOKEN_MINT, fundTreasuryIfNeeded,
+  fetchDevnetLFGBalance, fundTreasuryIfNeeded,
 } from "../game/devnetTransactions";
+import { CANONICAL_DEVNET_MINT } from "../game/solanaConfig";
 import { TOKEN_MINT } from "../game/solanaToken";
 import { AudioManager } from "../game/AudioSystem";
 import {
@@ -2597,7 +2598,7 @@ export default function FarmingGame() {
                 <div style={{ background: "#1a0f08", padding: "4px 0", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div className="gf" style={{ fontSize: 8, color: "#D4AF37", letterSpacing: 1, textAlign: "center" }}>◎ SOLANA DEVNET</div>
                   <div className="gf" style={{ fontSize: isMobile ? 4 : 5, color: "rgba(255,255,255,0.4)", textAlign: "center", wordBreak: "break-all" }}>
-                    {DEVNET_TOKEN_MINT}
+                    {CANONICAL_DEVNET_MINT}
                   </div>
                   {walletConnected && !walletAddress.startsWith("guest") && (
                     <div className="gf" style={{ fontSize: isMobile ? 5 : 6, color: "#9D7BFF", textAlign: "center" }}>
