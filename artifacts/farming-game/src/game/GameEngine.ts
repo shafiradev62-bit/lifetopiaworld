@@ -69,9 +69,12 @@ export async function syncServerTime() {
     const latency = (end - start) / 2;
     serverTimeOffset = (dbTime + latency) - end;
   } catch {
-    // Fallback if RPC doesnt exist — use a dummy select
+    // Fallback if RPC doesnt exist — use a dummy select with timeout to prevent hanging
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
       const { data } = await supabase.from('players').select('created_at').limit(1).maybeSingle();
+      clearTimeout(timeoutId);
       // Not ideal but better than nothing
     } catch {}
   }

@@ -132,7 +132,7 @@ export async function devnetBurnFromPlayer(
       return { success: false, error: "Player ATA not found on devnet" };
     const tx = new Transaction();
     tx.add(createBurnInstruction(playerAta, mint, playerPubkey, BigInt(Math.round(amount * 1e9)), [], TOKEN_PROGRAM_ID));
-    const { blockhash, lastValidBlockHeight } = await devnetConnection.getLatestBlockhash("confirmed");
+    const { blockhash, lastValidBlockHeight } = await devnetConnection.getLatestBlockhash("processed");
     tx.recentBlockhash = blockhash;
     tx.feePayer = playerPubkey;
     let sig: string;
@@ -142,7 +142,7 @@ export async function devnetBurnFromPlayer(
       const signed = await playerProvider.signTransaction(tx);
       sig = await devnetConnection.sendRawTransaction(signed.serialize());
     }
-    await devnetConnection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    await devnetConnection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "processed");
     console.log(`[DevnetTx] 🔥 Burned ${amount} LFG | ${reason} | tx: ${sig}`);
     return { success: true, txid: sig };
   } catch (e: any) {

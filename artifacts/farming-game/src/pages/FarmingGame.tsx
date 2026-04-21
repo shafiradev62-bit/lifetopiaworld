@@ -888,16 +888,49 @@ export default function FarmingGame() {
         }
         stateRef.current.player.nftEligibility = !!data.nft_eligibility;
         if (data.nfts && Array.isArray(data.nfts)) setNfts(data.nfts as string[]);
+        // Restore farm plots with crop data
+        if (data.farm_plots && Array.isArray(data.farm_plots)) {
+          for (const savedPlot of data.farm_plots) {
+            const plot = stateRef.current.farmPlots.find(p => p.plotUuid === savedPlot.plot_id);
+            if (plot) {
+              plot.tilled = !!savedPlot.tilled;
+              plot.watered = !!savedPlot.watered;
+              plot.fertilized = !!savedPlot.fertilized;
+              plot.crop = savedPlot.crop || null;
+              plot.stressDrySince = savedPlot.stressDrySince || null;
+            }
+          }
+        }
         applyStoredQuestClaims(stateRef.current, addr);
         lastServerEconomyRef.current = snapshotEconomy(stateRef.current.player);
         setDs({ ...stateRef.current });
         return true;
       };
-      // Try localStorage buffer first (mobile battery saving)
+      // Try localStorage buffer first (mobile battery saving) - FAST PATH
       const cached = localStorage.getItem(`progress_${addr}`);
       if (cached) {
-        try { applyRow(JSON.parse(cached)); } catch { /* ignore */ }
+        try { 
+          if (applyRow(JSON.parse(cached))) {
+            setInitialLoadComplete(true);
+            // Background sync with Supabase - non-blocking
+            supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle().then(u => {
+              if (u.data) applyRow(u.data);
+            }).catch(() => {});
+            // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value)
+            if (!addr.startsWith("guest")) {
+              fetchDevnetLFGBalance(addr).then(bal => {
+                if (bal > 0) {
+                  stateRef.current.player.gold = Math.floor(bal);
+                  stateRef.current.player.lifetopiaGold = bal;
+                  setDs({ ...stateRef.current });
+                }
+              }).catch(() => {});
+            }
+            return;
+          }
+        } catch { /* ignore */ }
       }
+      // Fallback to Supabase if localStorage fails
       const u = await supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle();
       let loaded = applyRow(u.data);
       if (!loaded) {
@@ -967,14 +1000,44 @@ export default function FarmingGame() {
     const savedType = localStorage.getItem("wallet_type");
     if (!savedAddr || !savedType) return;
 
-    const w = window as any;
+    // Wallet extensions inject into window asynchronously — wait up to 1s
+    const tryReconnect = (attempt = 0) => {
+      const w = window as any;
 
-    // Try to silently reconnect Solana wallets (Phantom, Solflare, Backpack)
-    if (savedType === "solana") {
-      const providers: Array<{ sol: any; name: string }> = [];
-      if (w.phantom?.solana?.isPhantom) providers.push({ sol: w.phantom.solana, name: "Phantom" });
-      else if (w.solana?.isPhantom) providers.push({ sol: w.solana, name: "Phantom" });
-      if (w.solflare?.isSolflare) providers.push({ sol: w.solflare, name: "
+      if (savedType === "solana") {
+        const providers: Array<{ sol: any; name: string }> = [];
+        if (w.phantom?.solana?.isPhantom) providers.push({ sol: w.phantom.solana, name: "Phantom" });
+        else if (w.solana?.isPhantom) providers.push({ sol: w.solana, name: "Phantom" });
+        if (w.solflare?.isSolflare) providers.push({ sol: w.solflare, name: "Solflare" });
+        if (w.backpack?.isBackpack) providers.push({ sol: w.backpack, name: "Backpack" });
+
+        if (providers.length === 0) {
+          // Extension not injected yet — retry up to 5x with 100ms gap (faster)
+          if (attempt < 5) { setTimeout(() => tryReconnect(attempt + 1), 100); }
+          return;
+        }
+
+        const { sol, name } = providers[0];
+        if (typeof sol.connect !== "function") return;
+
+        sol.connect({ onlyIfTrusted: true })
+          .then((res: any) => {
+            const pk = res?.publicKey?.toString() ?? sol.publicKey?.toString();
+            if (pk && pk === savedAddr) {
+              console.log(`[AutoReconnect] ${name} silently reconnected`);
+              _onWalletConnected(pk, "solana", sol, name.toUpperCase());
+            }
+          })
+          .catch(() => {
+            // Not trusted yet — clear stale data so button shows correctly
+            localStorage.removeItem("wallet_addr");
+            localStorage.removeItem("wallet_type");
+          });
+      }
+    };
+
+    tryReconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // â”€â”€ Map ambient audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -1045,7 +1108,8 @@ export default function FarmingGame() {
     stateRef.current.notification = { text: "MINTING ALPHA PASS (+LFG)...", life: 300 };
     setDs({ ...stateRef.current });
     try {
-      await fundTreasuryIfNeeded().catch(() => {});
+      // Fund treasury in parallel, don't wait
+      fundTreasuryIfNeeded().catch(() => {});
       const { devnetMintToPlayer } = await import("../game/devnetTransactions");
       const res = await devnetMintToPlayer(addr, 10, "alpha-claim", walletProviderRef.current);
       if (res.success && res.txid) {
@@ -1053,15 +1117,20 @@ export default function FarmingGame() {
         setShowTxPopup(true);
         const updatedNfts = [...nfts, `ALPHA PASS | ${res.txid.slice(0, 10)}…`];
         setNfts(updatedNfts);
-        const onChainBalance = await fetchDevnetLFGBalance(addr);
-        stateRef.current.player.lifetopiaGold = onChainBalance;
-        stateRef.current.player.gold = Math.floor(onChainBalance);
-        setDevnetLFGBalance(onChainBalance);
+        // Fetch balance + NFT check in background
+        Promise.all([
+          fetchDevnetLFGBalance(addr),
+          checkSolanaNFT(addr)
+        ]).then(([onChainBalance, hasUtility]) => {
+          stateRef.current.player.lifetopiaGold = onChainBalance;
+          stateRef.current.player.gold = Math.floor(onChainBalance);
+          setDevnetLFGBalance(onChainBalance);
+          const boost = applyNFTBoostsToState(hasUtility);
+          stateRef.current.farmingSpeedMultiplier = boost.farmingSpeedMultiplier;
+          stateRef.current.nftBoostActive = boost.nftBoostActive;
+          setDs({ ...stateRef.current });
+        }).catch(() => {});
         stateRef.current.player.nftEligibility = false;
-        const hasUtility = await checkSolanaNFT(addr);
-        const boost = applyNFTBoostsToState(hasUtility);
-        stateRef.current.farmingSpeedMultiplier = boost.farmingSpeedMultiplier;
-        stateRef.current.nftBoostActive = boost.nftBoostActive;
         const claimText = "ALPHA PASS RECEIVED — LFG ON DEVNET!";
         stateRef.current.notification = { text: claimText, life: 160 };
         triggerPopup(claimText);
