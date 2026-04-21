@@ -60,6 +60,9 @@ let serverTimeOffset = 0;
 
 /** Fetch server time from Supabase to prevent client-side cheating (GDD Requirement) */
 export async function syncServerTime() {
+  // DISABLED - Causes wallet connection delay. Use client time for instant performance.
+  // If anti-cheat is critical, this can be re-enabled with non-blocking background sync.
+  return;
   try {
     const start = Date.now();
     // Use select now() to get DB time

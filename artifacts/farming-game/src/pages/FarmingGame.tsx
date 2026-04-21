@@ -906,17 +906,17 @@ export default function FarmingGame() {
         setDs({ ...stateRef.current });
         return true;
       };
-      // Try localStorage buffer first (mobile battery saving) - FAST PATH
+      // Try localStorage buffer first (mobile battery saving) - INSTANT
       const cached = localStorage.getItem(`progress_${addr}`);
       if (cached) {
         try { 
           if (applyRow(JSON.parse(cached))) {
             setInitialLoadComplete(true);
-            // Background sync with Supabase - non-blocking
+            // Background sync with Supabase - non-blocking, fire and forget
             supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle().then(u => {
               if (u.data) applyRow(u.data);
             }).catch(() => {});
-            // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value)
+            // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value) - fire and forget
             if (!addr.startsWith("guest")) {
               fetchDevnetLFGBalance(addr).then(bal => {
                 if (bal > 0) {
@@ -930,7 +930,8 @@ export default function FarmingGame() {
           }
         } catch { /* ignore */ }
       }
-      // Fallback to Supabase if localStorage fails
+      // Fallback to Supabase if localStorage fails - AWAIT but don't block UI
+      setInitialLoadComplete(true); // Set immediately so UI is not blocked
       const u = await supabase.from("users").select("*").eq("wallet_address", addr).maybeSingle();
       let loaded = applyRow(u.data);
       if (!loaded) {
@@ -938,8 +939,7 @@ export default function FarmingGame() {
         loaded = applyRow(p.data);
       }
       if (!loaded) applyStoredQuestClaims(stateRef.current, addr);
-      setInitialLoadComplete(true);
-      // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value)
+      // Sync on-chain $GOLD token balance -> in-game GOLD (overrides DB value) - fire and forget
       if (!addr.startsWith("guest")) {
         fetchDevnetLFGBalance(addr).then(bal => {
           if (bal > 0) {
@@ -994,49 +994,41 @@ export default function FarmingGame() {
     return () => clearInterval(timer);
   }, [nfts]);
 
-  // Auto-reconnect wallet silently on page reload (onlyIfTrusted = no popup)
+  // Auto-reconnect wallet silently on page reload (onlyIfTrusted = no popup) - INSTANT
   useEffect(() => {
     const savedAddr = localStorage.getItem("wallet_addr");
     const savedType = localStorage.getItem("wallet_type");
     if (!savedAddr || !savedType) return;
 
-    // Wallet extensions inject into window asynchronously — wait up to 1s
-    const tryReconnect = (attempt = 0) => {
-      const w = window as any;
+    // Check immediately without any delay
+    const w = window as any;
 
-      if (savedType === "solana") {
-        const providers: Array<{ sol: any; name: string }> = [];
-        if (w.phantom?.solana?.isPhantom) providers.push({ sol: w.phantom.solana, name: "Phantom" });
-        else if (w.solana?.isPhantom) providers.push({ sol: w.solana, name: "Phantom" });
-        if (w.solflare?.isSolflare) providers.push({ sol: w.solflare, name: "Solflare" });
-        if (w.backpack?.isBackpack) providers.push({ sol: w.backpack, name: "Backpack" });
+    if (savedType === "solana") {
+      const providers: Array<{ sol: any; name: string }> = [];
+      if (w.phantom?.solana?.isPhantom) providers.push({ sol: w.phantom.solana, name: "Phantom" });
+      else if (w.solana?.isPhantom) providers.push({ sol: w.solana, name: "Phantom" });
+      if (w.solflare?.isSolflare) providers.push({ sol: w.solflare, name: "Solflare" });
+      if (w.backpack?.isBackpack) providers.push({ sol: w.backpack, name: "Backpack" });
 
-        if (providers.length === 0) {
-          // Extension not injected yet — retry up to 5x with 100ms gap (faster)
-          if (attempt < 5) { setTimeout(() => tryReconnect(attempt + 1), 100); }
-          return;
-        }
+      if (providers.length === 0) return;
 
-        const { sol, name } = providers[0];
-        if (typeof sol.connect !== "function") return;
+      const { sol, name } = providers[0];
+      if (typeof sol.connect !== "function") return;
 
-        sol.connect({ onlyIfTrusted: true })
-          .then((res: any) => {
-            const pk = res?.publicKey?.toString() ?? sol.publicKey?.toString();
-            if (pk && pk === savedAddr) {
-              console.log(`[AutoReconnect] ${name} silently reconnected`);
-              _onWalletConnected(pk, "solana", sol, name.toUpperCase());
-            }
-          })
-          .catch(() => {
-            // Not trusted yet — clear stale data so button shows correctly
-            localStorage.removeItem("wallet_addr");
-            localStorage.removeItem("wallet_type");
-          });
-      }
-    };
-
-    tryReconnect();
+      sol.connect({ onlyIfTrusted: true })
+        .then((res: any) => {
+          const pk = res?.publicKey?.toString() ?? sol.publicKey?.toString();
+          if (pk && pk === savedAddr) {
+            console.log(`[AutoReconnect] ${name} silently reconnected`);
+            _onWalletConnected(pk, "solana", sol, name.toUpperCase());
+          }
+        })
+        .catch(() => {
+          // Not trusted yet — clear stale data so button shows correctly
+          localStorage.removeItem("wallet_addr");
+          localStorage.removeItem("wallet_type");
+        });
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // â”€â”€ Map ambient audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
