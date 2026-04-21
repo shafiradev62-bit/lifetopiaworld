@@ -291,7 +291,6 @@ export function createInitialState(): GameState {
 }
 
 function createHomeTrees(): Tree[] {
-  return [
     { id: "tree1", x: 100, y: 350, hp: 5, maxHp: 5, type: "oak" },
     { id: "tree2", x: 80, y: 500, hp: 10, maxHp: 10, type: "pine" },
     { id: "tree3", x: 920, y: 300, hp: 6, maxHp: 6, type: "oak" },
