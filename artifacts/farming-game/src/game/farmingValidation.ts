@@ -8,7 +8,7 @@ import {
 } from "./Game";
 
 /** Engine validation radius — all farm plot actions require player inside this range */
-export const FARM_ACTION_RADIUS_PX = 120;
+export const FARM_ACTION_RADIUS_PX = 200;
 
 export function distanceToPlotCenter(s: GameState, plotId: string): number {
   const p = s.farmPlots.find((x) => x.id === plotId);

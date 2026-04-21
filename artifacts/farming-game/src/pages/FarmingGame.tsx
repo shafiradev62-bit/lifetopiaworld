@@ -1328,16 +1328,6 @@ export default function FarmingGame() {
         stateRef.current.notification = { text: `NO ${cropName} SEEDS - BUY FROM CITY SHOP!`, life: 160 };
         setDs({ ...stateRef.current });
         // Still select the tool so user knows what they picked
-      } else {
-        // AUTO-PLANT: Find first available tilled plot and plant immediately
-        const availablePlot = stateRef.current.farmPlots.find(p => p.tilled && !p.crop);
-        if (availablePlot) {
-          // Plant directly on the first available tilled plot
-          stateRef.current.player.tool = toolId as any;
-          stateRef.current = handleToolAction(stateRef.current);
-          setDs({ ...stateRef.current });
-          return;
-        }
       }
     }
     stateRef.current.player.tool = toolId as any;
