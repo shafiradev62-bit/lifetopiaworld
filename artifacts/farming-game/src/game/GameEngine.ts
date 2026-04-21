@@ -31,6 +31,8 @@ import {
   seedUnlockLevel,
   stressWiltThresholdMs,
   LifeParticle,
+  Collectible,
+  InteractiveSpot,
 } from "./Game";
 import { supabase } from "./supabase";
 import { onHarvestCrop, onFishCaught, onTreeChopped } from "./devnetTransactions";
