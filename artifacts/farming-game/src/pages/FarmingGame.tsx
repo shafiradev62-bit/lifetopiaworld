@@ -826,11 +826,10 @@ export default function FarmingGame() {
       registerDevnetHooks({ walletAddress: addr, provider });
     }
 
-    // loadProgress runs immediately — no waiting on sign message or NFT check
-    loadProgress(addr).then(() => {
-      setDs({ ...stateRef.current });
-      saveProgress().catch(console.error);
-    }).catch(console.error);
+    // loadProgress runs immediately — await to ensure farm plots with crops are loaded
+    await loadProgress(addr);
+    setDs({ ...stateRef.current });
+    saveProgress().catch(console.error);
 
     // NFT check — independent, non-blocking
     if (provider && type === "solana") {
@@ -1247,8 +1246,13 @@ export default function FarmingGame() {
         for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) {
           const existing = stateRef.current.farmPlots.find(p => p.gridX === c && p.gridY === r);
           const uid = globalThis.crypto?.randomUUID?.() ?? `plot-${Date.now()}-${c}-${r}`;
-          plots.push(existing ? { ...existing, plotUuid: existing.plotUuid ?? uid, stressDrySince: existing.stressDrySince ?? null }
-            : { id: `plot-${r}-${c}`, plotUuid: uid, gridX: c, gridY: r, worldX: 197 + c * 83, worldY: 259 + r * 68, tilled: false, watered: false, fertilized: false, crop: null, stressDrySince: null });
+          if (existing) {
+            // Preserve ALL existing data including crop
+            plots.push({ ...existing, plotUuid: existing.plotUuid ?? uid, stressDrySince: existing.stressDrySince ?? null });
+          } else {
+            // Only create new plot if none exists
+            plots.push({ id: `plot-${r}-${c}`, plotUuid: uid, gridX: c, gridY: r, worldX: 197 + c * 83, worldY: 259 + r * 68, tilled: false, watered: false, fertilized: false, crop: null, stressDrySince: null });
+          }
         }
         stateRef.current.farmPlots = plots;
       }
