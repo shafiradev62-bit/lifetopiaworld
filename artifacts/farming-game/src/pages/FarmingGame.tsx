@@ -5,6 +5,9 @@ import {
   applyFarmBalancePreset, getShopSeedPrice, toolIdToCrop,
   isCropPlantingUnlocked, seedUnlockLevel, CROP_GROW_TIMES,
   CROP_GOLD_REWARDS, CROP_HARVEST_XP, FARM_BALANCE_PRESETS,
+  getLoginRewardForStreak, claimLoginReward, buildSessionHook,
+  getNextMilestone, getProgressionData, LOGIN_REWARDS,
+  DailyStreak,
 } from "../game/Game";
 import {
   createInitialState, updateGame, handleToolAction, switchMap, spawnText, handleFishingAction,
@@ -2230,9 +2233,107 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ QUESTS PANEL â”€â”€ */}
+              {/* ── QUESTS PANEL ── */}
               {activePanel === "quests" && (
                 <div>
+                  {/* ── STREAK & LOGIN REWARD HEADER ── */}
+                  {(() => {
+                    const streak = ds.dailyStreak as DailyStreak;
+                    const loginReward = getLoginRewardForStreak(streak);
+                    const hook = buildSessionHook(ds, streak);
+                    const nextMile = getNextMilestone(ds.player.level);
+                    return (
+                      <div style={{ marginBottom: 12 }}>
+                        {/* Welcome back banner */}
+                        <div style={{ background: "linear-gradient(180deg, #3A1F0A, #5C3A1E)", border: "2px solid #FFD700", borderRadius: 10, padding: "10px 12px", marginBottom: 10, textAlign: "center" }}>
+                          <div style={{ fontSize: 6, color: "#FFE082", fontFamily: "'Press Start 2P', monospace", marginBottom: 4 }}>WELCOME BACK, FARMER!</div>
+                          <div style={{ fontSize: 5, color: "#FFF", fontFamily: "'Press Start 2P', monospace" }}>{hook.welcomeMessage}</div>
+                        </div>
+
+                        {/* Streak display */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ fontSize: 8, color: "#FFD700", fontFamily: "'Press Start 2P', monospace" }}>🔥 {streak.consecutiveDays}</div>
+                            <div style={{ fontSize: 5, color: "#CCC" }}>DAY STREAK</div>
+                          </div>
+                          {loginReward && (
+                            <button
+                              className="wb gf"
+                              style={{ fontSize: 5, padding: "6px 10px", background: "linear-gradient(180deg, #FFD700, #C8A020)", color: "#3E2723", border: "2px solid #FFF", animation: "mwPulse 2s infinite" }}
+                              onClick={() => {
+                                AudioManager.playSFX("click");
+                                const res = claimLoginReward(stateRef.current, streak);
+                                if (res) {
+                                  stateRef.current.dailyStreak = { ...streak, claimedToday: true };
+                                  spawnText(stateRef.current, stateRef.current.player.x, stateRef.current.player.y - 52, `+${res.gold} GOLD!`, "#FFD700", -2.2);
+                                  stateRef.current.notification = { text: `LOGIN REWARD CLAIMED! +${res.gold}G${res.item ? ` + ${res.item}` : ""}`, life: 150 };
+                                  setDs({ ...stateRef.current });
+                                }
+                              }}
+                            >
+                              CLAIM LOGIN REWARD
+                            </button>
+                          )}
+                          {!loginReward && (
+                            <div style={{ fontSize: 5, color: "#888", fontFamily: "'Press Start 2P', monospace" }}>REWARD CLAIMED ✓</div>
+                          )}
+                        </div>
+
+                        {/* Login reward progress (7-day streak calendar) */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 10 }}>
+                          {LOGIN_REWARDS.map((r, i) => {
+                            const isToday = i < streak.consecutiveDays;
+                            const isClaimed = streak.weeklyClaimed?.includes(r.day);
+                            const isCurrent = i === streak.consecutiveDays - 1;
+                            return (
+                              <div key={i} style={{
+                                background: isClaimed ? "rgba(255,215,0,0.3)" : isToday ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.2)",
+                                border: `2px solid ${isCurrent ? "#FFD700" : isClaimed ? "#C8A020" : "#5C4033"}`,
+                                borderRadius: 8,
+                                padding: "5px 2px",
+                                textAlign: "center",
+                                opacity: isToday || isClaimed ? 1 : 0.4,
+                              }}>
+                                <div style={{ fontSize: 3, color: isClaimed ? "#FFD700" : "#FFF", fontFamily: "'Press Start 2P', monospace" }}>{r.day}d</div>
+                                <div style={{ fontSize: 4, color: "#FFD700" }}>{r.gold}G</div>
+                                {r.milestone && <div style={{ fontSize: 3, color: "#FF8A80" }}>{r.milestone}</div>}
+                                {isClaimed && <div style={{ fontSize: 4 }}>✓</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Progression bar (EXP) */}
+                        {nextMile && (
+                          <div style={{ background: "#3B2416", borderRadius: 8, padding: "8px", marginBottom: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ fontSize: 5, color: "#FFD700", fontFamily: "'Press Start 2P', monospace" }}>LV {ds.player.level}</span>
+                              <span style={{ fontSize: 5, color: "#CCC" }}>→ LV {nextMile.level} ({nextMile.description.split("!")[0].trim()})</span>
+                            </div>
+                            <div style={{ background: "#1a0e06", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${Math.min(100, (ds.player.exp / ds.player.maxExp) * 100)}%`, background: "linear-gradient(90deg, #4CAF50, #8BC34A)", transition: "width 0.5s ease", borderRadius: 4 }} />
+                            </div>
+                            <div style={{ fontSize: 4, color: "#888", marginTop: 2 }}>{ds.player.exp}/{ds.player.maxExp} EXP — {nextMile.reward}G milestone reward!</div>
+                          </div>
+                        )}
+
+                        {/* Active boosts */}
+                        {(() => {
+                          const descs = Object.entries(ds.activeBoosts).filter(([, exp]) => Date.now() < exp);
+                          return descs.length > 0 ? (
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                              {descs.map(([boost]) => (
+                                <div key={boost} style={{ background: "rgba(255,215,0,0.15)", border: "1px solid #FFD700", borderRadius: 6, padding: "3px 6px", fontSize: 4, color: "#FFD700" }}>
+                                  ⚡ {boost.replace(/_/g, " ")}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                    );
+                  })()}
+
                   <div style={{ fontSize: 7, color: "#FFFFFF", marginBottom: 12, textAlign: "center", lineHeight: 1.8 }}>
                     COMPLETE TASKS TO EARN GOLD REWARDS!
                   </div>

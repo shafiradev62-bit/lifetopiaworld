@@ -192,8 +192,8 @@ export function renderGame(
   
   drawPlayer(ctx, state);
   
-  if (state.currentMap === "fishing")
-    drawFishingBiteAlert(ctx, state);
+  // Fishing bite "!" alert removed per user request
+  // Previously: drawFishingBiteAlert(ctx, state);
 
   // FOREGROUND PARALLAX
   drawParallaxForeground(ctx, state);
@@ -639,22 +639,8 @@ function drawShopkeeperBubble(ctx: CanvasRenderingContext2D, state: GameState) {
   ctx.restore();
 }
 
-function drawFishingBiteAlert(ctx: CanvasRenderingContext2D, state: GameState) {
-  const b = state.fishBobber;
-  if (!b.active || !b.biting) return;
-  const { x, y } = state.player;
-  const bounce = Math.abs(Math.sin(state.time / 7)) * 8;
-  ctx.save();
-  ctx.translate(x, y - 72 - bounce);
-  ctx.fillStyle = "#FFF";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 3;
-  ctx.font = "bold 28px sans-serif";
-  ctx.textAlign = "center";
-  ctx.strokeText("!", 0, 0);
-  ctx.fillText("!", 0, 0);
-  ctx.restore();
-}
+// REMOVED per user request: drawFishingBiteAlert — no "!" emoji alert on fishing map
+// function drawFishingBiteAlert(ctx: CanvasRenderingContext2D, state: GameState) { ... }
 
 function drawBackground(ctx: CanvasRenderingContext2D, state: GameState) {
   const { w, h } = MAP_SIZES[state.currentMap];
@@ -2476,8 +2462,8 @@ function drawDayCycleTint(ctx: CanvasRenderingContext2D, state: GameState, W: nu
 }
 
 function drawFakePlayers(ctx: CanvasRenderingContext2D, state: GameState) {
-  // Don't draw fake players on farm (home map) - only show player
-  if (state.currentMap === "home") return;
+  // Don't draw fake players on farm (home map) or fishing map
+  if (state.currentMap === "home" || state.currentMap === "fishing") return;
   
   for (const fp of state.fakePlayers) {
     // Only draw fake players on current map

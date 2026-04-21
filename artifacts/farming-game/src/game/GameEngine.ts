@@ -33,6 +33,25 @@ import {
   LifeParticle,
   Collectible,
   InteractiveSpot,
+  loadDailyStreak,
+  saveDailyStreak,
+  checkAndUpdateStreak,
+  getLoginRewardForStreak,
+  claimLoginReward,
+  checkDailyReset,
+  applyMilestoneReward,
+  getNextMilestone,
+  getScaledReward,
+  recordDailyAction,
+  isDailyActionCapped,
+  cleanupExpiredBoosts,
+  buildSessionHook,
+  getActiveBoostDescriptions,
+  getProgressionData,
+  LOGIN_REWARDS,
+  DailyStreak,
+  LoginReward,
+  getExpRequiredForLevel,
 } from "./Game";
 import { supabase } from "./supabase";
 import { onHarvestCrop, onFishCaught, onTreeChopped } from "./devnetTransactions";
@@ -102,6 +121,11 @@ function isFarmMovementLocked(player: GameState["player"]): boolean {
   return false;
 }
 
+/** Stub — collectibles managed in Renderer or a separate module */
+function createCollectibles() { return []; }
+/** Stub — interactive spots managed in Renderer or a separate module */
+function createInteractiveSpots() { return []; }
+
 function plotCenter(plot: FarmPlot): { cx: number; cy: number } {
   const { cellW, cellH } = FARM_GRID;
   return {
@@ -127,7 +151,15 @@ function updateMarketTrend(s: GameState) {
   if (!s.marketTrendCrop || s.time >= s.marketTrendUntil) rollMarketTrend(s);
 }
 
-export function createInitialState(): GameState {
+export function createInitialState(walletAddress?: string): GameState {
+  // Load streak on startup
+  const walletKey = walletAddress && !walletAddress.toLowerCase().startsWith("guest")
+    ? walletAddress
+    : "_guest";
+  const streak = loadDailyStreak(walletKey);
+  const updatedStreak = checkAndUpdateStreak(streak);
+  const loginReward = getLoginRewardForStreak(updatedStreak);
+
   const s: GameState = {
     player: {
       x: MAP_PLAYER_START.home.x,
@@ -160,9 +192,9 @@ export function createInitialState(): GameState {
       targetX: null,
       targetY: null,
       tutorialStep: 0,
-      harvestCount: 0, // Added to track 1st harvest unlock
+      harvestCount: 0,
       lifetopiaGold: 0,
-      walletAddress: "",
+      walletAddress: walletAddress ?? "",
       jumpY: 0,
       jumpFlip: 0,
       jumpCount: 0,
@@ -218,6 +250,29 @@ export function createInitialState(): GameState {
         target: 20,
         current: 0,
         reward: 50,
+        completed: false,
+        claimed: false,
+      },
+      // ── DAILY BONUS QUEST (rotates every day) ──
+      {
+        id: "q_daily_1",
+        title: "Daily: Till 3 Soil",
+        description: "Prepare 3 plots of soil",
+        type: "plant",
+        target: 3,
+        current: 0,
+        reward: 25,
+        completed: false,
+        claimed: false,
+      },
+      {
+        id: "q_daily_2",
+        title: "Daily: Water 2 Crops",
+        description: "Water any 2 planted crops",
+        type: "plant",
+        target: 2,
+        current: 0,
+        reward: 15,
         completed: false,
         claimed: false,
       },
@@ -280,12 +335,34 @@ export function createInitialState(): GameState {
     npcChatPool: {},
     worldEventText: null,
     worldEventUntil: 0,
+    // ── RETENTION SYSTEM FIELDS ──
+    dailyStreak: updatedStreak,
+    tokenState: { tokens: 0, lifetimeEarned: 0, lifetimeSpent: 0 },
+    claimedMilestones: [],
+    lastDailyResetCheck: Date.now(),
+    activeBoosts: {},
+    lifetimeGoldEarned: 0,
+    dailyActions: { date: new Date().toISOString().slice(0, 10), count: 0 },
+    nextDailyRefresh: Date.now() + 86400000,
   };
 
   applyFarmBalancePreset(s.farmBalancePreset);
   rollMarketTrend(s);
 
-  // Start clean: player must actually farm from scratch on home map
+  // ── SESSION HOOK: Show welcome back notification if rewards are ready ──
+  if (loginReward) {
+    const hook = buildSessionHook(s, updatedStreak);
+    s.notification = {
+      text: `LOGIN REWARD READY! Day ${updatedStreak.consecutiveDays}: +${loginReward.gold} GOLD!`,
+      life: 200,
+    };
+  }
+
+  // Save updated streak
+  saveDailyStreak(walletKey, updatedStreak);
+
+  // Check and apply daily quest reset
+  checkDailyReset(s);
 
   return s;
 }
@@ -769,7 +846,26 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
   updateGardenCritters(s, dt);
   resolveFishingSession(s, dt);
   updateMarketTrend(s);
-  
+
+  // ── RETENTION SYSTEMS: clean up expired boosts every frame ──
+  cleanupExpiredBoosts(s);
+
+  // ── SESSION HOOK: check for ready rewards and nudge player ──
+  if (s.time % 5000 < dt) { // Every ~5 seconds
+    const readyCrops = s.farmPlots.filter(p => p.crop?.ready).length;
+    const claimable = s.quests.filter(q => q.completed && !q.claimed).length;
+    const pendingGold = s.quests.filter(q => q.completed && !q.claimed).reduce((sum, q) => sum + q.reward, 0);
+
+    if (readyCrops > 0 && !s.notification?.text.includes("HARVEST")) {
+      s.notification = { text: `⏰ ${readyCrops} CROP${readyCrops > 1 ? "S" : ""} READY TO HARVEST!`, life: 120 };
+    } else if (claimable > 0 && !s.notification?.text.includes("QUEST")) {
+      s.notification = { text: `🎁 ${claimable} QUEST${claimable > 1 ? "S" : ""} READY (+${pendingGold}G)!`, life: 120 };
+    }
+
+    // Check and apply daily reset
+    checkDailyReset(s);
+  }
+
   // Living world systems
   updateNPCs(s, dt);
   updateFakePlayers(s, dt);
@@ -1041,16 +1137,25 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       const baseGold = CROP_GOLD_REWARDS[ct] || preset.goldRewardMultiplier * 5;
       let gold = plot.crop.isRare ? baseGold * 3 : baseGold;
       if (s.marketTrendCrop === ct) gold = Math.floor(gold * 1.2);
-      
+
+      // ── APPLY SCALED REWARD ──
+      gold = getScaledReward(gold, s);
+
       const baseXp = CROP_HARVEST_XP[ct] || 10;
-      const exp = Math.floor(baseXp * preset.expMultiplier * (plot.crop.isRare ? 2 : 1));
-      
+      // EXP: apply double EXP boost if active
+      const expMult = (s.activeBoosts["double_exp_1h"] && s.time < s.activeBoosts["double_exp_1h"]) ? 2 : 1;
+      const exp = Math.floor(baseXp * preset.expMultiplier * expMult * (plot.crop.isRare ? 2 : 1));
+
+      // ── RECORD DAILY ACTION (applies soft cap) ──
+      recordDailyAction(s);
+
       s.player.gold += gold;
       s.player.exp += exp;
+      s.lifetimeGoldEarned += gold;
       s.player.action = tool as any;
       s.player.actionTimer = 35;
       attachFarmingEngine(s, plot, tool);
-      
+
       const nextInventory = {
         ...s.player.inventory,
         [ct]: (s.player.inventory[ct] || 0) + 1,
@@ -1059,17 +1164,21 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
 
       const wallet = s.player.walletAddress;
       if (wallet) {
-        // [DEBUG] Non-blocking wallet sync — wrapped in try-catch to never crash game loop
         import("./questManager").then(qm => {
           qm.updateSupabaseGold(wallet, s.player.gold);
           qm.updateInventory(wallet, nextInventory);
-          console.log(`[performPlotAction] questManager sync OK gold=${s.player.gold}`);
         }).catch(err => {
           console.warn(`[performPlotAction] questManager sync FAILED:`, err?.message);
         });
       }
 
-      // Subtle harvest feedback
+      // Check if daily action is capped (notify player for feedback)
+      if (isDailyActionCapped(s)) {
+        s.notification = { text: `+${gold}G (DAILY CAP NEAR)`, life: 80 };
+      } else {
+        s.notification = { text: `+${gold}G`, life: 80 };
+      }
+
       spawnVFX(s, cx, cy - 20, "plant");
       spawnVFX(s, cx, cy - 20, "coin");
       spawnText(s, cx, cy - 56, `+${gold} GOLD`, "#FFD700", -2.4);
@@ -1077,11 +1186,11 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       bumpQuestProgress(s, "harvest");
       addEarnQuestProgress(s, gold);
       firePlayerSocialBubble(s, plot.crop?.isRare ? "✨" : "🌾", 2000);
-      
+
       // Trigger harvest reaction
       s.playerReaction = plot.crop?.isRare ? "happy" : "normal";
       s.playerReactionUntil = s.time + 1500;
-      
+
       // Add to activity feed
       const harvestActivity = {
         id: `af${s.particleId++}`,
@@ -1091,33 +1200,46 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       };
       s.activityFeed.unshift(harvestActivity);
       if (s.activityFeed.length > 10) s.activityFeed = s.activityFeed.slice(0, 10);
-      
+
       // Fire on-chain LFG reward for harvest
       onHarvestCrop(ct, !!plot.crop?.isRare).catch(e => console.warn("[GameEngine] onHarvestCrop:", e.message));
       if (wallet) {
-        // [DEBUG] Non-blocking quest check — safe fire-and-forget
         import("./questManager").then(qm => {
           qm.checkQuestEligibility(s, wallet);
-          console.log(`[performPlotAction] checkQuestEligibility OK`);
         }).catch(err => {
           console.warn(`[performPlotAction] checkQuestEligibility FAILED:`, err?.message);
         });
       }
-      console.log(`[performPlotAction] HARVEST done action=${s.player.action} actionTimer=${s.player.actionTimer}`);
 
       s.plotJuice = { plotId: plot.id, until: s.time + 380 };
       AudioManager.playSFX("harvest");
-      
+
       s.player.harvestCount++;
       if (s.player.tutorialStep < 10) s.player.tutorialStep = 10;
-      
+
       plot.crop = null;
       plot.watered = false;
       plot.fertilized = false;
       plot.stressDrySince = null;
-      s.notification = { text: `+${gold}G`, life: 100 };
       s.pendingCloudSave = true;
+
+      // ── HANDLE LEVEL UP WITH MILESTONES ──
+      const preLevel = s.player.level;
       handleLevelUp(s, s.player.x, s.player.y);
+      const postLevel = s.player.level;
+
+      // Check and apply milestone rewards for any new levels
+      for (let lv = preLevel + 1; lv <= postLevel; lv++) {
+        const milestone = getNextMilestone(lv - 1); // Get milestone just passed
+        if (milestone && milestone.level === lv) {
+          applyMilestoneReward(s, milestone);
+          spawnVFX(s, s.player.x, s.player.y - 30, "sparkle");
+          spawnVFX(s, s.player.x + 20, s.player.y - 40, "sparkle");
+          spawnText(s, s.player.x, s.player.y - 70, `🎉 ${milestone.description}`, "#FFD700", -1.5);
+          s.shake = 8;
+          firePlayerSocialBubble(s, "⭐", 3000);
+        }
+      }
     } else if (!plot.tilled) {
       plot.tilled = true;
       plot.stressDrySince = null;
@@ -1197,6 +1319,8 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
     if (tool.includes("tomato")) cropType = "tomato";
     else if (tool.includes("carrot")) cropType = "carrot";
     else if (tool.includes("pumpkin")) cropType = "pumpkin";
+
+    console.log(`[performPlotAction] SEED check cropType=${cropType} tool=${tool} count=${s.player.inventory[tool] ?? 0} plot.tilled=${plot.tilled} plot.crop=${plot.crop?.type ?? "null"} unlock=${isCropPlantingUnlocked(cropType, s.player.level, s.farmBalancePreset)}`);
 
     const cd = s.seedCooldowns[tool] || 0;
     if (cd > 0) {
@@ -1954,16 +2078,22 @@ export function handleToolAction(
 
 function levelUpBannerMessage(newLevel: number, _diff: FarmBalancePreset): string {
   if (newLevel === 2) return "LEVEL UP! Tomato seeds unlocked!";
-  if (newLevel === 3) return "LEVEL UP! Carrot seeds unlocked!";
+  if (newLevel === 3) return "LEVEL UP! Suburban map unlocked!";
   if (newLevel === 5) return "LEVEL UP! Pumpkin seeds unlocked!";
+  if (newLevel === 10) return "LEVEL UP! Fertilizer discounted!";
+  if (newLevel === 15) return "LEVEL UP! Speed bonus active!";
+  if (newLevel === 20) return "LEVEL UP! Golden sickle unlocked!";
+  if (newLevel % 10 === 0 && newLevel > 10) return `LEVEL UP! LV${newLevel} MILESTONE! +GOLD!`;
   return `LEVEL UP! Welcome to Level ${newLevel}!`;
 }
 
 function handleLevelUp(ns: GameState, px: number, py: number) {
+  // Use new scaled EXP requirement function
   while (ns.player.exp >= ns.player.maxExp) {
+    const oldLevel = ns.player.level;
     ns.player.level++;
     ns.player.exp -= ns.player.maxExp;
-    ns.player.maxExp = Math.floor(ns.player.maxExp * 1.5);
+    ns.player.maxExp = getExpRequiredForLevel(ns.player.level);
     ns.player.maxHp += 5;
     ns.player.hp = Math.min(ns.player.hp + 5, ns.player.maxHp);
     spawnVFX(ns, px, py - 30, "sparkle");
@@ -1973,6 +2103,18 @@ function handleLevelUp(ns: GameState, px: number, py: number) {
     ns.levelUpPopup = { message: msg, until: ns.time + 4500 };
     ns.pendingCloudSave = true;
     firePlayerSocialBubble(ns, "⭐", 2600);
+
+    // Check milestone reward for this level
+    const milestone = getNextMilestone(oldLevel);
+    if (milestone && milestone.level === ns.player.level) {
+      applyMilestoneReward(ns, milestone);
+      setTimeout(() => {
+        spawnVFX(ns, px, py - 40, "sparkle");
+        spawnText(ns, px, py - 70, `🎉 MILESTONE: ${milestone.description}`, "#FFD700", -1.5);
+        ns.shake = 12;
+        firePlayerSocialBubble(ns, "🏆", 3000);
+      }, 100);
+    }
   }
 }
 

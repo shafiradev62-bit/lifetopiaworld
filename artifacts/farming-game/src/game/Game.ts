@@ -127,6 +127,8 @@ export interface Quest {
   completed: boolean;
   /** Reward taken (prevents spam); paired with localStorage / gold sync */
   claimed: boolean;
+  /** If true, this quest resets every 24h */
+  daily?: boolean;
 }
 
 export interface NPC {
@@ -274,16 +276,6 @@ export interface Collectible {
   value: number;
 }
 
-export interface WeatherParticle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  size: number;
-  alpha: number;
-  type: "rain" | "snow" | "petal";
-}
-
 export interface InteractiveSpot {
   id: string;
   map: MapType;
@@ -293,7 +285,6 @@ export interface InteractiveSpot {
   action: "sit" | "sleep" | "read" | "dance" | "fish_spot" | "shop" | "dress";
   hint: string;
   color: string;
-  playerSitting?: boolean;
 }
 
 export interface GameState {
@@ -431,6 +422,27 @@ export interface GameState {
   playerIdleTime: number;
   playerReaction: string | null;
   playerReactionUntil: number;
+
+  // ═══════════════════════════════════════════════════════════════
+  // RETENTION SYSTEM FIELDS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Daily login streak tracking */
+  dailyStreak: DailyStreak;
+  /** Token (premium currency) state */
+  tokenState: TokenState;
+  /** All milestones ever claimed (prevents double-claim) */
+  claimedMilestones: number[];
+  /** Last timestamp for daily reset check */
+  lastDailyResetCheck: number;
+  /** Active boost effects: { type: expiresAt } */
+  activeBoosts: Record<string, number>;
+  /** Total lifetime gold earned (for stats) */
+  lifetimeGoldEarned: number;
+  /** Daily action counter for soft caps */
+  dailyActions: { date: string; count: number };
+  /** Next daily quest refresh timestamp */
+  nextDailyRefresh: number;
 }
 
 export const LOADING_TIPS = [
@@ -442,6 +454,191 @@ export const LOADING_TIPS = [
   "Tip: Use the Axe to clear withered crops.",
   "Tip: The City Shop stocks new seeds daily!",
 ];
+
+// ═══════════════════════════════════════════════════════════════
+// RETENTION SYSTEM — DAILY STREAK & LOGIN REWARDS
+// ═══════════════════════════════════════════════════════════════
+
+export interface DailyStreak {
+  /** Consecutive days played */
+  consecutiveDays: number;
+  /** Last login date (ISO date string YYYY-MM-DD) */
+  lastLoginDate: string;
+  /** Claimed today's reward yet */
+  claimedToday: boolean;
+  /** Claimed day 1..7 in current week */
+  weeklyClaimed: number[];
+}
+
+export interface LoginReward {
+  day: number;        // 1–7
+  gold: number;
+  item: string | null;
+  label: string;
+  /** Milestone bonus for special days */
+  milestone?: string;
+}
+
+export const LOGIN_REWARDS: LoginReward[] = [
+  { day: 1, gold: 15,  item: "wheat-seed:3",  label: "Day 1 — Bronze Welcome" },
+  { day: 2, gold: 25,  item: "wheat-seed:5",  label: "Day 2 — Rising Star" },
+  { day: 3, gold: 40,  item: "tomato-seed:3", label: "Day 3 — Growing Strong" },
+  { day: 4, gold: 55,  item: "carrot-seed:2", label: "Day 4 — On Fire!", milestone: "FIRE" },
+  { day: 5, gold: 75,  item: "carrot-seed:3", label: "Day 5 — Halfway Hero" },
+  { day: 6, gold: 100, item: "pumpkin-seed:2",label: "Day 6 — Almost Legend", milestone: "STAR" },
+  { day: 7, gold: 150, item: "pumpkin-seed:3",label: "Day 7 — Weekly Champion!", milestone: "CROWN" },
+];
+
+export const MAX_STREAK_WEEKS = 4; // Reset streak grace after 4 missed days
+
+// ═══════════════════════════════════════════════════════════════
+// PROGRESSION — LEVEL MILESTONE REWARDS
+// ═══════════════════════════════════════════════════════════════
+
+export interface LevelMilestone {
+  level: number;
+  reward: number;     // gold bonus
+  bonusItem?: string;
+  description: string;
+  /** Unlock feature name */
+  unlock?: string;
+}
+
+export const LEVEL_MILESTONES: LevelMilestone[] = [
+  { level: 2,  reward: 20,  description: "Unlocked: Tomato Seeds!", unlock: "tomato-seed" },
+  { level: 3,  reward: 30,  description: "Suburban map unlocked!", unlock: "suburban" },
+  { level: 5,  reward: 50,  description: "Pumpkin Seeds & faster tools!", unlock: "pumpkin-seed" },
+  { level: 8,  reward: 60,  description: "Rare crop chance increased!" },
+  { level: 10, reward: 80,  description: "Super Growth (Fertilizer) discounted!", unlock: "fertilizer" },
+  { level: 15, reward: 100, description: "Speed bonus +10%!", unlock: "speed_bonus" },
+  { level: 20, reward: 150, description: "Golden sickle available!", unlock: "sickle-gold" },
+  { level: 25, reward: 200, description: "VIP shop access unlocked!", unlock: "vip_shop" },
+  { level: 30, reward: 300, description: "Legendary farming gear!", unlock: "legendary" },
+];
+
+export function getMilestoneForLevel(level: number): LevelMilestone | null {
+  return LEVEL_MILESTONES.find(m => m.level === level) ?? null;
+}
+
+export function getNextMilestone(currentLevel: number): LevelMilestone | null {
+  const next = LEVEL_MILESTONES.find(m => m.level > currentLevel);
+  return next ?? null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ECONOMY SCALING — COST & REWARD CURVES
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Soft-cap player level. Beyond this, EXP required grows faster.
+ * Formula: maxExp = baseExp * 1.5^level * softCapMultiplier
+ * Soft cap kicks in after level 20.
+ */
+export const SOFT_CAP_LEVEL = 20;
+export const SOFT_CAP_MULTIPLIER = 2.5;
+
+export function getExpRequiredForLevel(level: number): number {
+  if (level <= SOFT_CAP_LEVEL) {
+    return Math.floor(100 * Math.pow(1.5, level - 1));
+  }
+  const baseAtCap = Math.floor(100 * Math.pow(1.5, SOFT_CAP_LEVEL - 1));
+  const extraLevels = level - SOFT_CAP_LEVEL;
+  return Math.floor(baseAtCap * SOFT_CAP_MULTIPLIER * Math.pow(1.8, extraLevels));
+}
+
+/**
+ * Seed cost scales with player level (exponential soft-cap).
+ * Starting price * (1 + level * 0.08)^0.7 (diminishing returns)
+ */
+export function getScaledSeedPrice(basePrice: number, playerLevel: number): number {
+  const scale = Math.pow(1 + playerLevel * 0.08, 0.7);
+  return Math.ceil(basePrice * scale);
+}
+
+/**
+ * Reward multiplier based on level (diminishing returns).
+ * Early game: fast rewards. Late game: slower but meaningful.
+ */
+export function getLevelRewardMultiplier(level: number): number {
+  if (level <= 5) return 1.0 + (level - 1) * 0.05;  // 1.0 → 1.2
+  if (level <= 15) return 1.2 + (level - 5) * 0.025; // 1.2 → 1.45
+  return 1.45 + (level - 15) * 0.01;                  // 1.45 → capped ~1.8
+}
+
+/**
+ * Gold sink: cost to expand farm plots (future feature).
+ * Exponential — ensures late-game sink.
+ */
+export function getPlotUnlockCost(plotCount: number): number {
+  return Math.floor(50 * Math.pow(2.2, plotCount));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION HOOK — "Welcome Back" / "Rewards Ready" state
+// ═══════════════════════════════════════════════════════════════
+
+export interface SessionHook {
+  /** Crops are ready to harvest right now */
+  cropsReady: boolean;
+  /** Login reward available to claim */
+  loginRewardAvailable: boolean;
+  /** How many quests are complete and unclaimed */
+  questCountReady: number;
+  /** Total reward gold waiting */
+  totalRewardGold: number;
+  /** Player's current streak */
+  streakDays: number;
+  /** Encouragement message */
+  welcomeMessage: string;
+}
+
+export function buildSessionHook(state: GameState, streak: DailyStreak): SessionHook {
+  const readyCrops = state.farmPlots.filter(p => p.crop?.ready).length;
+  const claimableQuests = state.quests.filter(q => q.completed && !q.claimed).length;
+  const pendingGold = state.quests.filter(q => q.completed && !q.claimed).reduce((sum, q) => sum + q.reward, 0);
+
+  // Welcome message based on context
+  let message = "Welcome back, farmer!";
+  if (readyCrops > 0) message = `Harvest ${readyCrops} ready crop${readyCrops > 1 ? "s" : ""}!`;
+  else if (claimableQuests > 0) message = `${claimableQuests} quest${claimableQuests > 1 ? "s" : ""} ready to claim!`;
+  else if (streak.consecutiveDays > 1) message = `Day ${streak.consecutiveDays} streak! Keep going!`;
+  else if (state.player.gold > 100) message = "Your farm is prospering!";
+  else message = "Start farming — every action earns!";
+
+  return {
+    cropsReady: readyCrops > 0,
+    loginRewardAvailable: !streak.claimedToday,
+    questCountReady: claimableQuests,
+    totalRewardGold: pendingGold,
+    streakDays: streak.consecutiveDays,
+    welcomeMessage: message,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RESOURCE LAYER — Second currency "LIFETOPIA TOKENS" (optional)
+// ═══════════════════════════════════════════════════════════════
+
+export interface TokenState {
+  tokens: number;
+  lifetimeEarned: number;
+  lifetimeSpent: number;
+}
+
+// Token sources: milestone completions, streak bonuses, rare events
+// Token sinks: cosmetic unlocks, speed boosts, special items
+export const TOKEN_ITEM_CATALOG: Record<string, { cost: number; name: string; type: "cosmetic" | "boost" | "convenience" }> = {
+  "avatar_frame_bronze": { cost: 50,  name: "Bronze Frame", type: "cosmetic" },
+  "avatar_frame_silver": { cost: 150, name: "Silver Frame", type: "cosmetic" },
+  "avatar_frame_gold":   { cost: 300, name: "Gold Frame",   type: "cosmetic" },
+  "speed_boost_1h":       { cost: 80,  name: "1hr Speed Boost", type: "boost" },
+  "double_exp_1h":        { cost: 100, name: "1hr 2x EXP",     type: "boost" },
+  "inventory_expand":     { cost: 200, name: "Inventory +5",   type: "convenience" },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// RETENTION STATE — Extended GameState fields
+// ═══════════════════════════════════════════════════════════════
 
 
 /** GDD base grow times (ms) - Harvest Moon style
@@ -800,4 +997,260 @@ export function farmPlotIsActionable(
   }
 
   return false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RETENTION UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+const STREAK_STORAGE_KEY = "lifetopia_daily_streak";
+
+export function loadDailyStreak(wallet: string): DailyStreak {
+  try {
+    const raw = localStorage.getItem(`${STREAK_STORAGE_KEY}_${wallet}`);
+    if (!raw) return createFreshStreak();
+    return JSON.parse(raw) as DailyStreak;
+  } catch {
+    return createFreshStreak();
+  }
+}
+
+export function saveDailyStreak(wallet: string, streak: DailyStreak) {
+  try {
+    localStorage.setItem(`${STREAK_STORAGE_KEY}_${wallet}`, JSON.stringify(streak));
+  } catch { /* ignore */ }
+}
+
+function createFreshStreak(): DailyStreak {
+  return {
+    consecutiveDays: 0,
+    lastLoginDate: "",
+    claimedToday: false,
+    weeklyClaimed: [],
+  };
+}
+
+function todayDateStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function yesterdayDateStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function checkAndUpdateStreak(streak: DailyStreak): DailyStreak {
+  const today = todayDateStr();
+  const yesterday = yesterdayDateStr();
+
+  if (streak.lastLoginDate === today) {
+    // Same day — no change
+    return streak;
+  } else if (streak.lastLoginDate === yesterday) {
+    // Consecutive day — increment streak
+    return {
+      ...streak,
+      consecutiveDays: streak.consecutiveDays + 1,
+      lastLoginDate: today,
+      claimedToday: false,
+    };
+  } else {
+    // Streak broken — reset but keep small grace bonus
+    const graceBonus = streak.consecutiveDays > 3 ? 2 : 0; // Keep 2 days if long streak
+    return {
+      ...streak,
+      consecutiveDays: graceBonus,
+      lastLoginDate: today,
+      claimedToday: false,
+      weeklyClaimed: [],
+    };
+  }
+}
+
+export function getLoginRewardForStreak(streak: DailyStreak): LoginReward | null {
+  if (streak.claimedToday) return null;
+  const day = Math.min(streak.consecutiveDays, 7);
+  if (day < 1) return null;
+  return LOGIN_REWARDS[day - 1] ?? LOGIN_REWARDS[6]; // Cap at day 7 reward
+}
+
+export function claimLoginReward(
+  state: GameState,
+  streak: DailyStreak,
+): { reward: LoginReward; gold: number; item: string | null } | null {
+  const reward = getLoginRewardForStreak(streak);
+  if (!reward) return null;
+
+  // Add gold
+  state.player.gold += reward.gold;
+  state.lifetimeGoldEarned += reward.gold;
+
+  // Parse and add item rewards
+  let item: string | null = null;
+  if (reward.item) {
+    const [itemId, count] = reward.item.split(":");
+    if (itemId && count) {
+      state.player.inventory[itemId] = (state.player.inventory[itemId] ?? 0) + parseInt(count, 10);
+      item = `${count}x ${itemId}`;
+    }
+  }
+
+  // Mark claimed
+  streak.claimedToday = true;
+  streak.weeklyClaimed = streak.weeklyClaimed || [];
+  streak.weeklyClaimed.push(reward.day);
+
+  return { reward, gold: reward.gold, item };
+}
+
+/**
+ * Check daily quest reset — if more than 24h since last check,
+ * reset all quests and bump dailyActions counter.
+ */
+export function checkDailyReset(state: GameState): boolean {
+  const now = Date.now();
+  const lastCheck = state.lastDailyResetCheck || 0;
+  const MS_24H = 86400000;
+
+  if (now - lastCheck < MS_24H) return false;
+
+  // Reset quests
+  state.quests = state.quests.map(q => ({
+    ...q,
+    current: 0,
+    completed: false,
+    claimed: false,
+  }));
+
+  // Reset daily actions counter
+  state.dailyActions = { date: todayDateStr(), count: 0 };
+
+  // Reset cooldowns
+  state.seedCooldowns = {};
+
+  state.lastDailyResetCheck = now;
+  state.nextDailyRefresh = now + MS_24H;
+
+  return true; // Did reset
+}
+
+/**
+ * Apply level milestone reward. Returns reward info or null if already claimed.
+ */
+export function applyMilestoneReward(
+  state: GameState,
+  milestone: LevelMilestone,
+): boolean {
+  if (state.claimedMilestones.includes(milestone.level)) return false;
+
+  state.player.gold += milestone.reward;
+  state.lifetimeGoldEarned += milestone.reward;
+  state.claimedMilestones.push(milestone.level);
+
+  if (milestone.bonusItem) {
+    const [itemId, count] = milestone.bonusItem.split(":");
+    if (itemId) {
+      state.player.inventory[itemId] = (state.player.inventory[itemId] ?? 0) + (parseInt(count || "1", 10));
+    }
+  }
+
+  // Bonus unlock: activate boost directly
+  if (milestone.unlock === "speed_bonus") {
+    state.player.speed += 0.3;
+  }
+
+  return true;
+}
+
+/**
+ * Calculate total daily action soft cap.
+ * After cap, rewards are reduced by 40% (still meaningful, just slower).
+ */
+export function getDailyActionCap(playerLevel: number): number {
+  return 30 + playerLevel * 2; // 32 at level 1, 70 at level 20
+}
+
+export function isDailyActionCapped(state: GameState): boolean {
+  const today = todayDateStr();
+  const cap = getDailyActionCap(state.player.level);
+  return state.dailyActions.date === today && state.dailyActions.count >= cap;
+}
+
+export function recordDailyAction(state: GameState) {
+  const today = todayDateStr();
+  if (state.dailyActions.date !== today) {
+    state.dailyActions = { date: today, count: 0 };
+  }
+  state.dailyActions.count++;
+}
+
+/**
+ * Scaled reward — applies daily cap penalty and level multiplier.
+ */
+export function getScaledReward(baseGold: number, state: GameState): number {
+  const capped = isDailyActionCapped(state);
+  const levelMult = getLevelRewardMultiplier(state.player.level);
+  const scaled = baseGold * levelMult;
+  return capped ? Math.floor(scaled * 0.6) : Math.floor(scaled);
+}
+
+/**
+ * Get progress bar data for UI rendering.
+ * Returns { current, max, percentage, nextMilestone, nextMilestoneProgress }
+ */
+export function getProgressionData(state: GameState) {
+  const nextMilestone = getNextMilestone(state.player.level);
+  const progressToNext = nextMilestone
+    ? Math.min(100, (state.player.level / nextMilestone.level) * 100)
+    : 100;
+
+  return {
+    level: state.player.level,
+    exp: state.player.exp,
+    maxExp: state.player.maxExp,
+    expPct: Math.floor((state.player.exp / state.player.maxExp) * 100),
+    nextMilestone,
+    progressToNextMilestone: progressToNext,
+    gold: state.player.gold,
+    lifetimeGold: state.lifetimeGoldEarned,
+  };
+}
+
+/**
+ * Check active boosts and clean up expired ones.
+ */
+export function getActiveBoostDescriptions(state: GameState): string[] {
+  const now = Date.now();
+  const active: string[] = [];
+
+  for (const [boost, expiresAt] of Object.entries(state.activeBoosts)) {
+    if (now < expiresAt) {
+      const remaining = Math.ceil((expiresAt - now) / 60000);
+      active.push(`${boost.replace(/_/g, " ")} (${remaining}m)`);
+    }
+  }
+
+  return active;
+}
+
+export function activateBoost(state: GameState, boostType: string, durationMs: number) {
+  const now = Date.now();
+  state.activeBoosts[boostType] = now + durationMs;
+
+  if (boostType === "speed_boost_1h") {
+    state.player.speed += 0.5;
+  } else if (boostType === "double_exp_1h") {
+    // Applied in harvest/plant XP calculations
+  }
+}
+
+export function cleanupExpiredBoosts(state: GameState) {
+  const now = Date.now();
+  const remaining: Record<string, number> = {};
+  for (const [boost, expiresAt] of Object.entries(state.activeBoosts)) {
+    if (now < expiresAt) remaining[boost] = expiresAt;
+  }
+  state.activeBoosts = remaining;
 }
