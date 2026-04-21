@@ -13,7 +13,9 @@
 
 # Environment variables to set in Railway dashboard (or here for build-time only):
 # VITE_ALCHEMY_API_KEY=your_alchemy_key
-# VITE_TOKEN_MINT_ADDRESS=your_token_mint
+# VITE_LIFETOPIA_ALPHA_MINT=ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu
+# IMPORTANT: remove any old mint env that starts with "7" (legacy/wrong).
+# IMPORTANT: do not use VITE_TOKEN_MINT_ADDRESS for deployment config anymore.
 # VITE_WALLET_DAPP_URL=https://your-app.railway.app
 # PORT=3001
 # BASE_PATH=/
