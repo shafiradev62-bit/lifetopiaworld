@@ -263,6 +263,39 @@ export interface Footprint {
   foot: "left" | "right";
 }
 
+export interface Collectible {
+  id: string;
+  map: MapType;
+  x: number;
+  y: number;
+  kind: "coin" | "gem" | "star" | "mushroom" | "shell";
+  collected: boolean;
+  respawnAt: number;
+  value: number;
+}
+
+export interface WeatherParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  alpha: number;
+  type: "rain" | "snow" | "petal";
+}
+
+export interface InteractiveSpot {
+  id: string;
+  map: MapType;
+  x: number;
+  y: number;
+  label: string;
+  action: "sit" | "sleep" | "read" | "dance" | "fish_spot" | "shop" | "dress";
+  hint: string;
+  color: string;
+  playerSitting?: boolean;
+}
+
 export interface GameState {
   player: {
     x: number;
@@ -292,12 +325,16 @@ export interface GameState {
     jumpY: number; // For professional jump/flip mechanics
     jumpFlip: number;
     jumpCount: number;
-    emote: "wave" | "dance" | "sit" | "laugh" | null;
+    emote: "wave" | "dance" | "sit" | "laugh" | "cry" | "angry" | "sleep" | "eat" | "drink" | "cheer" | null;
     emoteUntil: number;
     emoteBubble: string | null;
     emoteBubbleUntil: number;
     nftEligibility: boolean;
     outfit: "default" | "farmer" | "city" | "suburban";
+    chatText?: string;
+    chatUntil?: number;
+    isSitting?: boolean;
+    sittingSpotId?: string;
   };
   currentMap: MapType;
   farmPlots: FarmPlot[];
