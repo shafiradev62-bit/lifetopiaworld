@@ -54,3 +54,6 @@ Thumbs.db
 .local/
 
 .vercel
+
+# Kiro AI
+.kiro/
