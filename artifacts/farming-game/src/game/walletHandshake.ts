@@ -108,8 +108,8 @@ export async function signSolanaLogin(
 
   console.log("[WalletHandshake] Signature obtained, length:", signature.length);
 
-  // Upsert to players table immediately
-  await upsertPlayerToSupabase(address);
+  // Upsert to players table — fire and forget, don't block sign flow
+  upsertPlayerToSupabase(address).catch(console.error);
 
   return {
     address,
