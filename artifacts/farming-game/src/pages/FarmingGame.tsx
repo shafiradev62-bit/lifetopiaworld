@@ -648,11 +648,15 @@ export default function FarmingGame() {
     const injected = !!(sol?.connect && (sol.isPhantom || w.phantom?.solana?.isPhantom));
 
     if (injected) {
+      setConnectingWallet("phantom");
+      const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
       }).catch((e: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         console.error("[Phantom]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });
@@ -674,11 +678,15 @@ export default function FarmingGame() {
     const sol = w.solflare ?? w.solana;
     const injected = !!(sol?.connect && (w.solflare?.isSolflare || sol?.isSolflare));
     if (injected) {
+      setConnectingWallet("solflare");
+      const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
       }).catch((e: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         console.error("[Solflare]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });
@@ -698,11 +706,15 @@ export default function FarmingGame() {
     const sol = w.backpack ?? w.solana;
     const injected = !!(sol?.connect && w.backpack?.isBackpack);
     if (injected) {
+      setConnectingWallet("backpack");
+      const timeoutId = setTimeout(() => setConnectingWallet(null), 8000);
       sol.connect().then((res: any) => {
         const pk = res?.publicKey ?? sol.publicKey;
         if (!pk) throw new Error("No public key returned");
         _onWalletConnected(pk.toString(), "solana", sol);
       }).catch((e: any) => {
+        clearTimeout(timeoutId);
+        setConnectingWallet(null);
         console.error("[Backpack]", e);
         stateRef.current.notification = { text: (e?.message || "CONNECT FAILED").toUpperCase().slice(0, 40), life: 120 };
         setDs({ ...stateRef.current });

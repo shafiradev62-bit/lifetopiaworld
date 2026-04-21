@@ -6,7 +6,7 @@ interface SplashScreenProps {
 }
 
 // ── Particle types ────────────────────────────────────────────────────────────
-type ParticleKind = "leaf" | "sparkle" | "glow";
+type ParticleKind = "leaf" | "sparkle" | "glow" | "vine";
 
 interface Particle {
   id: number;
@@ -24,6 +24,8 @@ interface Particle {
   // sparkle specific
   points: number;
   innerR: number; outerR: number;
+  // vine specific
+  vineLength?: number; vineProgress?: number; vineDir?: number; vineSide?: number;
 }
 
 const LEAF_COLORS = [
@@ -106,6 +108,123 @@ function spawnGlow(cx: number, cy: number, W: number, H: number): Particle {
     leafW: 6 + Math.random() * 10, leafH: 0,
     veinAngle: 0, points: 0, innerR: 0, outerR: 0,
   };
+}
+
+// ── Vine creep functions ──────────────────────────────────────────────────────
+function spawnVine(W: number, H: number, side: "left" | "right"): Particle {
+  const isLeft = side === "left";
+  return {
+    id: ++_pid, kind: "vine",
+    x: isLeft ? 0 : W,
+    y: H * (0.3 + Math.random() * 0.5),
+    vx: 0, vy: 0,
+    rot: 0, vrot: 0,
+    scale: 0.6 + Math.random() * 0.6,
+    scaleV: 0,
+    alpha: 0,
+    alphaV: 0.025,
+    life: 0,
+    maxLife: 320 + Math.random() * 180,
+    color: LEAF_COLORS[Math.floor(Math.random() * 7)],
+    leafW: 0, leafH: 0, veinAngle: 0, points: 0, innerR: 0, outerR: 0,
+    vineLength: 60 + Math.random() * 100,
+    vineProgress: 0,
+    vineDir: isLeft ? 1 : -1,
+    vineSide: isLeft ? 0 : 1,
+  };
+}
+
+function drawVine(ctx: CanvasRenderingContext2D, p: Particle, W: number, _H: number) {
+  const progress = Math.min(1, p.vineProgress ?? 0);
+  const totalLen = (p.vineLength ?? 80) * progress;
+  const x0 = p.vineSide === 0 ? 0 : W;
+  const xDir = p.vineSide === 0 ? 1 : -1;
+  const color = p.color;
+
+  ctx.save();
+  ctx.globalAlpha = p.alpha * 0.85;
+
+  // Main creeping vine stem — organic bezier
+  const steps = Math.ceil(progress * 8);
+  const pts: [number, number][] = [];
+  let cx = x0, cy = p.y;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / 8;
+    const nx = x0 + xDir * totalLen * t;
+    const ny = p.y + Math.sin(t * Math.PI * 2.5 + p.id * 0.3) * 18 * Math.min(t, 1);
+    pts.push([nx, ny]);
+    cx = nx; cy = ny;
+  }
+
+  // Draw vine stem with thickness
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3.5 * p.scale;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const [px, py] = pts[i - 1];
+    const [nx, ny] = pts[i];
+    ctx.quadraticCurveTo(px + xDir * 10, py, (px + nx) / 2, (py + ny) / 2);
+  }
+  ctx.stroke();
+
+  // Secondary thinner stem
+  ctx.strokeStyle = darken(color, 20);
+  ctx.lineWidth = 1.5 * p.scale;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const [px, py] = pts[i - 1];
+    const [nx, ny] = pts[i];
+    ctx.quadraticCurveTo(px + xDir * 10, py + 3, (px + nx) / 2, (py + ny) / 2 + 3);
+  }
+  ctx.stroke();
+
+  // Leaves sprouting from vine
+  for (let i = 2; i < pts.length - 1; i++) {
+    const t = i / 8;
+    const [vx, vy] = pts[i];
+    const leafSize = (8 + Math.sin(t * 7 + p.id) * 4) * p.scale;
+    const side = i % 2 === 0 ? 1 : -1;
+    const angle = Math.sin(t * 3 + p.id * 0.5) * 0.6 + side * 0.8;
+
+    ctx.save();
+    ctx.translate(vx, vy);
+    ctx.rotate(angle);
+
+    // Leaf shape
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(leafSize * 0.7, -leafSize * 0.3, leafSize * 0.9, leafSize * 0.3, 0, leafSize * 0.8);
+    ctx.bezierCurveTo(-leafSize * 0.9, leafSize * 0.3, -leafSize * 0.7, -leafSize * 0.3, 0, 0);
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, leafSize * 0.9);
+    grad.addColorStop(0, lighten(color, 50));
+    grad.addColorStop(0.6, color);
+    grad.addColorStop(1, darken(color, 25));
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = darken(color, 35);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Tendril curl at the tip
+  if (progress > 0.6) {
+    const tip = pts[pts.length - 1];
+    const curl = (progress - 0.6) / 0.4;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * p.scale;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(tip[0] + xDir * 8 * curl, tip[1] - 6 * curl, 6 * curl, 0, Math.PI * 0.8 * curl);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function drawLeaf(ctx: CanvasRenderingContext2D, p: Particle) {
@@ -259,6 +378,10 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
     if (frameRef.current % 16 === 0) particlesRef.current.push(spawnSparkle(cx, cy, W, H));
     if (frameRef.current % 24 === 0) particlesRef.current.push(spawnGlow(cx, cy, W, H));
 
+    // Vine creep from left/right edges — staggered timing for organic feel
+    if (frameRef.current % 90 === 0) particlesRef.current.push(spawnVine(W, H, "left"));
+    if (frameRef.current % 130 === 30) particlesRef.current.push(spawnVine(W, H, "right"));
+
     // Cap
     if (particlesRef.current.length > 180) particlesRef.current.splice(0, 10);
 
@@ -273,6 +396,11 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
       p.vx *= 0.998;
       p.rot += p.vrot;
       p.scale += p.scaleV;
+
+      // Vine: grow progressively along edges
+      if (p.kind === "vine") {
+        p.vineProgress = Math.min(1, (p.vineProgress ?? 0) + 0.008);
+      }
 
       // Fade in / fade out — max alpha 0.22 (almost transparent)
       const lifeRatio = p.life / p.maxLife;
@@ -289,7 +417,8 @@ export default function SplashScreen({ onSelectMap }: SplashScreenProps) {
 
       if (p.kind === "leaf") drawLeaf(ctx, p);
       else if (p.kind === "sparkle") drawSparkle(ctx, p);
-      else drawGlow(ctx, p);
+      else if (p.kind === "glow") drawGlow(ctx, p);
+      else if (p.kind === "vine") drawVine(ctx, p, W, H);
 
       ctx.restore();
     }
