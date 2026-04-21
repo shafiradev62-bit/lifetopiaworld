@@ -17,16 +17,19 @@ export const LIFETOPIA_DEVNET_RPC =
   envTrim("VITE_SOLANA_DEVNET_RPC") || "https://api.devnet.solana.com";
 
 /**
- * Unified Alpha mint. Prefer explicit alpha, then devnet mint (common in .env), then legacy token env.
- * Priority: LIFETOPIA_ALPHA → DEVNET_TOKEN → TOKEN → ALPHA_NFT → default sample mint.
+ * ⚠️  MINT ADDRESS RESMI — jangan ganti tanpa koordinasi tim.
+ * Semua integrasi devnet (COIN off-chain = GOLD on-chain) pakai address ini.
+ */
+export const CANONICAL_DEVNET_MINT = "ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu";
+
+/**
+ * Resolve mint: env var bisa override untuk testing lokal,
+ * tapi canonical mint selalu jadi fallback terakhir.
  */
 export function resolveLifetopiaAlphaMint(): string {
   return (
     envTrim("VITE_LIFETOPIA_ALPHA_MINT") ||
-    envTrim("VITE_DEVNET_TOKEN_MINT") ||
-    envTrim("VITE_TOKEN_MINT_ADDRESS") ||
-    envTrim("VITE_ALPHA_NFT_MINT") ||
-    "ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu" // ← mint resmi devnet
+    CANONICAL_DEVNET_MINT
   );
 }
 
