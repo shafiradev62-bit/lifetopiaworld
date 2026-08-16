@@ -100,7 +100,7 @@ import {
   farmingEngineRelease,
 } from "./farmingEngine";
 
-/** Short emoji reaction above the avatar (social sandbox feedback). */
+/** Short reaction bubble above the avatar (social sandbox feedback). */
 function firePlayerSocialBubble(s: GameState, emoji: string, durationMs = 2200) {
   s.player.emoteBubble = emoji;
   s.player.emoteBubbleUntil = s.time + durationMs;
@@ -821,7 +821,7 @@ function completeFishing(s: GameState) {
   bumpQuestProgress(s, "fish");
   firePlayerSocialBubble(
     s,
-    type === "exotic" ? "🐠" : type === "rare" ? "🐟" : "🎣",
+    type === "exotic" ? "EXOTIC!" : type === "rare" ? "RARE!" : "FISH!",
     2000,
   );
   onFishCaught(type).catch(e => console.warn("[GameEngine] onFishCaught:", e.message));
@@ -863,9 +863,9 @@ export function updateGame(state: GameState, dt: number, stateRef?: MutableRefOb
     const pendingGold = s.quests.filter(q => q.completed && !q.claimed).reduce((sum, q) => sum + q.reward, 0);
 
     if (readyCrops > 0 && !s.notification?.text.includes("HARVEST")) {
-      s.notification = { text: `⏰ ${readyCrops} CROP${readyCrops > 1 ? "S" : ""} READY TO HARVEST!`, life: 120 };
+      s.notification = { text: `${readyCrops} CROP${readyCrops > 1 ? "S" : ""} READY TO HARVEST!`, life: 120 };
     } else if (claimable > 0 && !s.notification?.text.includes("QUEST")) {
-      s.notification = { text: `🎁 ${claimable} QUEST${claimable > 1 ? "S" : ""} READY (+${pendingGold}G)!`, life: 120 };
+      s.notification = { text: `${claimable} QUEST${claimable > 1 ? "S" : ""} READY (+${pendingGold}G)!`, life: 120 };
     }
 
     // Check and apply daily reset
@@ -1192,7 +1192,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
 
       bumpQuestProgress(s, "harvest");
       addEarnQuestProgress(s, gold);
-      firePlayerSocialBubble(s, plot.crop?.isRare ? "✨" : "🌾", 2000);
+      firePlayerSocialBubble(s, plot.crop?.isRare ? "RARE!" : "HARVEST!", 2000);
 
       // Trigger harvest reaction
       s.playerReaction = plot.crop?.isRare ? "happy" : "normal";
@@ -1242,9 +1242,9 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
           applyMilestoneReward(s, milestone);
           spawnVFX(s, s.player.x, s.player.y - 30, "sparkle");
           spawnVFX(s, s.player.x + 20, s.player.y - 40, "sparkle");
-          spawnText(s, s.player.x, s.player.y - 70, `🎉 ${milestone.description}`, "#FFD700", -1.5);
+          spawnText(s, s.player.x, s.player.y - 70, milestone.description, "#FFD700", -1.5);
           s.shake = 8;
-          firePlayerSocialBubble(s, "⭐", 3000);
+          firePlayerSocialBubble(s, "MILESTONE!", 3000);
         }
       }
     } else if (!plot.tilled) {
@@ -1378,7 +1378,7 @@ function performPlotAction(s: GameState, plotIdx: number, tool: string, cx: numb
       for (let i = 0; i < 6; i++) spawnVFX(s, cx + (Math.random()-0.5)*35, cy + (Math.random()-0.5)*25, "plant");
       spawnVFX(s, cx, cy, "dust");
       s.notification = { text: `PLANTED ${cropType.toUpperCase()}!`, life: 90 };
-      firePlayerSocialBubble(s, "🌱", 1800);
+      firePlayerSocialBubble(s, "PLANTED!", 1800);
       bumpQuestProgress(s, "plant");
       s.plotJuice = { plotId: plot.id, until: s.time + 360 };
       console.log(`[performPlotAction] PLANT ${cropType} done action=${s.player.action} actionTimer=${s.player.actionTimer} plotId=${plot.id}`);
@@ -2110,7 +2110,7 @@ function handleLevelUp(ns: GameState, px: number, py: number) {
     ns.notification = { text: msg.toUpperCase().slice(0, 48), life: 140 };
     ns.levelUpPopup = { message: msg, until: ns.time + 4500 };
     ns.pendingCloudSave = true;
-    firePlayerSocialBubble(ns, "⭐", 2600);
+    firePlayerSocialBubble(ns, "MILESTONE!", 2600);
 
     // Check milestone reward for this level
     const milestone = getNextMilestone(oldLevel);
@@ -2118,9 +2118,9 @@ function handleLevelUp(ns: GameState, px: number, py: number) {
       applyMilestoneReward(ns, milestone);
       setTimeout(() => {
         spawnVFX(ns, px, py - 40, "sparkle");
-        spawnText(ns, px, py - 70, `🎉 MILESTONE: ${milestone.description}`, "#FFD700", -1.5);
+        spawnText(ns, px, py - 70, `MILESTONE: ${milestone.description}`, "#FFD700", -1.5);
         ns.shake = 12;
-        firePlayerSocialBubble(ns, "🏆", 3000);
+        firePlayerSocialBubble(ns, "MILESTONE!", 3000);
       }, 100);
     }
   }

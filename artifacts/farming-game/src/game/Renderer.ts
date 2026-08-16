@@ -464,10 +464,6 @@ function drawGardenRemotePlayers(
     ctx.fillRect(-11, -32, 22, 30);
     ctx.fillStyle = "rgba(227, 242, 253, 0.95)";
     ctx.fillRect(-9, -30, 18, 8);
-    ctx.font = '5px "Press Start 2P", monospace';
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#E3F2FD";
-    ctx.fillText("☆", 0, -38);
     ctx.restore();
   }
 }
@@ -1719,9 +1715,13 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.fillStyle = "#FFFFFF";
     ctx.strokeStyle = "#4D2D18";
     ctx.lineWidth = 2;
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+    const text = state.player.emoteBubble;
+    const bw = Math.max(36, ctx.measureText(text).width + 14);
     // Bubble
     ctx.beginPath();
-    ctx.roundRect(-18, -24, 36, 30, 8);
+    ctx.roundRect(-bw / 2, -24, bw, 30, 8);
     ctx.fill();
     ctx.stroke();
     // Anchor
@@ -1731,10 +1731,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.lineTo(6, 6);
     ctx.fill();
     ctx.stroke();
-    // Emoji
-    ctx.font = "20px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(state.player.emoteBubble, 0, 2);
+    ctx.fillText(text, 0, 2);
     ctx.restore();
   }
 }
@@ -2166,9 +2163,10 @@ function drawGardenOverlay(ctx: CanvasRenderingContext2D, state: GameState) {
     const alpha = Math.sin(t * Math.PI) * 0.7;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = "10px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("♥", hx, hy);
+    ctx.fillStyle = "#FF6B81";
+    ctx.beginPath();
+    ctx.arc(hx, hy, 2, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -2540,18 +2538,12 @@ function drawActivityFeed(ctx: CanvasRenderingContext2D, state: GameState) {
     roundRect(ctx, 0, 0, 220, 24, 6);
     ctx.fill();
     
-    // Icon based on type with subtle bounce
-    let icon = "🌾";
-    if (item.type === "harvest") icon = "🌾";
-    else if (item.type === "plant") icon = "🌱";
-    else if (item.type === "level") icon = "⭐";
-    else if (item.type === "trade") icon = "💰";
-    
+    // Colored dot based on type with subtle bounce
     const iconBounce = Math.sin(state.time / 300 + i * 0.5) * 2;
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(icon, 8, 12 + iconBounce);
+    ctx.fillStyle = item.type === "harvest" ? "#4CAF50" : item.type === "plant" ? "#81C784" : item.type === "level" ? "#FFD700" : "#4FC3F7";
+    ctx.beginPath();
+    ctx.arc(12, 12 + iconBounce, 3, 0, Math.PI * 2);
+    ctx.fill();
     
     // Text
     ctx.font = '9px "Outfit", sans-serif';

@@ -232,7 +232,6 @@ export interface ShopItem {
   name: string;
   price: number;
   type: "seed" | "tool" | "cosmetic";
-  emoji: string;
   spriteUrl: string;
 }
 
@@ -943,14 +942,14 @@ export const MAP_COLLISIONS: Record<MapType, CollisionRect[]> = {
 };
 
 export const SHOP_ITEMS: ShopItem[] = [
-  { id: "wheat-seed", name: "Wheat Seed", price: 2, type: "seed", emoji: "🌾", spriteUrl: "/wheat.png" },
-  { id: "tomato-seed", name: "Tomato Seed", price: 5, type: "seed", emoji: "🍅", spriteUrl: "/tomato.png" },
-  { id: "carrot-seed", name: "Carrot Seed", price: 8, type: "seed", emoji: "🥕", spriteUrl: "/carrot.png" },
-  { id: "pumpkin-seed", name: "Pumpkin Seed", price: 12, type: "seed", emoji: "🎃", spriteUrl: "/pumpkin.png" },
-  { id: "water", name: "Watering Can", price: 15, type: "tool", emoji: "💧", spriteUrl: "/teko_siram.png" },
-  { id: "fertilizer", name: "Super Growth", price: 10, type: "tool", emoji: "✨", spriteUrl: "/karung_1774349990717.png" },
-  { id: "axe", name: "Wood Axe", price: 25, type: "tool", emoji: "🪓", spriteUrl: "/kapak_1774349990716.png" },
-  { id: "hoe", name: "Steel Hoe", price: 30, type: "tool", emoji: "⛏️", spriteUrl: "/celurit_1774349990712.png" },
+  { id: "wheat-seed", name: "Wheat Seed", price: 2, type: "seed", spriteUrl: "/wheat.png" },
+  { id: "tomato-seed", name: "Tomato Seed", price: 5, type: "seed", spriteUrl: "/tomato.png" },
+  { id: "carrot-seed", name: "Carrot Seed", price: 8, type: "seed", spriteUrl: "/carrot.png" },
+  { id: "pumpkin-seed", name: "Pumpkin Seed", price: 12, type: "seed", spriteUrl: "/pumpkin.png" },
+  { id: "water", name: "Watering Can", price: 15, type: "tool", spriteUrl: "/teko_siram.png" },
+  { id: "fertilizer", name: "Super Growth", price: 10, type: "tool", spriteUrl: "/karung_1774349990717.png" },
+  { id: "axe", name: "Wood Axe", price: 25, type: "tool", spriteUrl: "/kapak_1774349990716.png" },
+  { id: "hoe", name: "Steel Hoe", price: 30, type: "tool", spriteUrl: "/celurit_1774349990712.png" },
 ];
 
 export const FARM_GRID = {

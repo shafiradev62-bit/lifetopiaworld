@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { App } from "@capacitor/app";
 import {
   GameState, MapType, SHOP_ITEMS, FARM_GRID, FarmBalancePreset,
@@ -67,7 +67,7 @@ const MAPS: { id: MapType; label: string; desc: string }[] = [
 
 const TOOL_IDS = TOOLS.map((t) => t.id);
 
-// â”€â”€ Action popup definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Action popup definitions ──────────────────────────────────────────────────
 function makeActionPopup(notifText: string, id: number): ActionPopupData | null {
   const t = notifText.toUpperCase();
   if (t.includes("TILLED"))    return { id, icon: "[ HOE ]", title: "SOIL TILLED!", subtitle: "Ready for seeds", color: "#8D5A32", accent: "#D4AF37", minimal: true };
@@ -101,7 +101,7 @@ function formatGrowDuration(ms: number): string {
   return r ? `${m}m ${r}s` : `${m}m`;
 }
 
-// â”€â”€ Farm status helper â€” crystal-clear step-by-step instruction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Farm status helper — crystal-clear step-by-step instruction ──────────────
 function getFarmStatusGuide(plots: GameState["farmPlots"], activeTool: string | null): { action: string; slot: number | null; slotLabel: string | null } {
   const ready     = plots.filter(p => p.crop?.ready).length;
   const dead      = plots.filter(p => p.crop?.dead).length;
@@ -214,7 +214,7 @@ export default function FarmingGame() {
   // Boost charges (limited uses per session)
   const [boostCharges, setBoostCharges] = useState(3);
 
-  // â”€â”€ Unity-style 2D VFX overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Unity-style 2D VFX overlay ────────────────────────────────────────────
   const [vfxOverlay, setVfxOverlay] = useState<Array<{
     id: number; type: "star" | "ripple" | "pop" | "sparkle" | "leaf";
     x: number; y: number; color: string; size: number;
@@ -236,7 +236,7 @@ export default function FarmingGame() {
     }, 800);
   }, []);
 
-  // â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     localStorage.removeItem("farm_grid");
     (FARM_GRID as any).cols = 3; (FARM_GRID as any).rows = 2;
@@ -348,13 +348,13 @@ export default function FarmingGame() {
   };
 
 
-  // â”€â”€ Gold ↔ Blockchain sync (LFG token mint/burn) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Gold ↔ Blockchain sync (LFG token mint/burn) ─────────────────────────────
   // Gold sync disabled: in-game GOLD is purely cosmetic/gameplay currency.
   // LFG on-chain tokens are only minted via explicit player actions:
   //   - devnetHarvestClaim (harvest ready crops)
   //   - devnetAirdrop (manual airdrop button)
   // This prevents shop purchases / any gold spend from burning real tokens.
-  // â”€â”€ Register window.startLifetopiaDemo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Register window.startLifetopiaDemo() ──────────────────────────────────
   // Use refs so the demo always has fresh closures without re-registering
   const setSplashDoneRef = useRef(setSplashDone);
   const setIntroTutorialDoneRef = useRef(setIntroTutorialDone);
@@ -414,7 +414,7 @@ export default function FarmingGame() {
     setDs({ ...stateRef.current });
   };
 
-  // â”€â”€ Notification â†’ ActionPopup bridge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Notification → ActionPopup bridge ────────────────────────────────────
   const triggerPopup = useCallback((text: string) => {
     if (text === lastNotifRef.current) return;
     lastNotifRef.current = text;
@@ -504,7 +504,7 @@ export default function FarmingGame() {
     };
   }, [walletConnected, walletAddress, syncBlockchainData]);
 
-  // â”€â”€ Splash / Tutorial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Splash / Tutorial ─────────────────────────────────────────────────────
   const handleSplashSelect = useCallback((map: MapType) => {
     AudioManager.init();
     AudioManager.playBGM("/backsound.mp3");
@@ -537,7 +537,7 @@ export default function FarmingGame() {
     setDs({ ...stateRef.current });
   }, []);
 
-  // â”€â”€ Wallet detection - TRAP-based: fires the INSTANT extension injects â”€â”€â”€â”€â”€â”€
+  // ── Wallet detection - TRAP-based: fires the INSTANT extension injects ──────
   useEffect(() => {
     const w = window as any;
 
@@ -551,7 +551,7 @@ export default function FarmingGame() {
       setTrustWalletFound(!!(w.trustwallet || eth?.isTrust || eth?.isTrustWallet || providers.some((p: any) => p?.isTrust || p?.isTrustWallet)));
     };
 
-    // Run immediately â€” catches extensions that inject synchronously
+    // Run immediately — catches extensions that inject synchronously
     applyState();
 
     // Trap window.ethereum: fires the moment MetaMask/Trust injects
@@ -569,7 +569,7 @@ export default function FarmingGame() {
             cb();
           },
         });
-      } catch { /* defineProperty blocked â€” fallback to event */ }
+      } catch { /* defineProperty blocked — fallback to event */ }
     };
 
     trapProp("ethereum", applyState);
@@ -601,7 +601,7 @@ export default function FarmingGame() {
     };
   }, [isMobile]);
 
-  // â”€â”€ Set up deep link handler so wallet callbacks return to game â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Set up deep link handler so wallet callbacks return to game ──────────
   useEffect(() => {
     setupWalletDeepLinkHandler();
     
@@ -643,7 +643,7 @@ export default function FarmingGame() {
     return () => { sub.then(s => s.remove()); };
   }, []);
 
-  // â”€â”€ Connect Phantom - SIMPLE, no async/await â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Connect Phantom - SIMPLE, no async/await ─────────────
   const connectPhantom = () => {
     const w = window as any;
     const isNative = !!(w.Capacitor?.isNativePlatform?.());
@@ -803,7 +803,7 @@ export default function FarmingGame() {
     }
   };
 
-  // â”€â”€ Play as Guest (no wallet required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Play as Guest (no wallet required) ────────────────────────────────────
   const playAsGuest = () => {
     const gAddr = `guest_${guestId.slice(6, 16)}`;
     setWalletAddress(gAddr);
@@ -818,7 +818,7 @@ export default function FarmingGame() {
   };
 
   const _onWalletConnected = async (addr: string, type: "solana" | "evm", provider: any, label?: string) => {
-    // 1. INSTANT UI update â€” no await before this
+    // 1. INSTANT UI update — no await before this
     walletProviderRef.current = provider;
     setWalletAddress(addr);
     setWalletType(type);
@@ -835,7 +835,7 @@ export default function FarmingGame() {
     setActivePanel(null);
     setDs({ ...stateRef.current });
 
-    // 2. Background: signature + supabase + NFT check â€” all parallel, non-blocking
+    // 2. Background: signature + supabase + NFT check — all parallel, non-blocking
     // Switch to home map immediately (no delay)
     if (stateRef.current.currentMap !== "home") doSwitchMap("home");
 
@@ -886,7 +886,7 @@ export default function FarmingGame() {
     stateRef.current.player.walletAddress = "";
   };
 
-  // â”€â”€ Persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Persistence ───────────────────────────────────────────────────────────
   const loadProgress = async (addr: string) => {
     try {
       const applyRow = (data: Record<string, unknown> | null): boolean => {
@@ -897,7 +897,7 @@ export default function FarmingGame() {
         stateRef.current.player.exp = exp;
         stateRef.current.player.level = level;
         stateRef.current.player.maxExp = typeof data.max_exp === "number" ? data.max_exp : stateRef.current.player.maxExp;
-        // Merge: DB/localStorage may store `{}` â€” empty object is truthy and would wipe default seeds
+        // Merge: DB/localStorage may store `{}` — empty object is truthy and would wipe default seeds
         if (data.inventory != null && typeof data.inventory === "object" && !Array.isArray(data.inventory)) {
           stateRef.current.player.inventory = {
             ...stateRef.current.player.inventory,
@@ -1063,14 +1063,14 @@ export default function FarmingGame() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // â”€â”€ Map ambient audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Map ambient audio ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!splashDone || !introTutorialDone) return;
     if (ds.currentMap === "suburban") { AudioManager.init(); AudioManager.setMapAmbient("suburban_birds"); }
     else AudioManager.setMapAmbient("none");
   }, [ds.currentMap, splashDone, introTutorialDone]);
 
-  // â”€â”€ Garden presence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Garden presence ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!splashDone || !introTutorialDone || ds.currentMap !== "garden") return;
     let cancelled = false;
@@ -1116,7 +1116,7 @@ export default function FarmingGame() {
     return () => { clearInterval(iv); void channel.unsubscribe(); };
   }, [ds.currentMap, splashDone, introTutorialDone, walletAddress]);
 
-  // â”€â”€ NFT claim â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── NFT claim ─────────────────────────────────────────────────────────────
   const claimNFT = async () => {
     const addr = (walletAddress || localStorage.getItem("wallet_addr") || "").trim();
     if (!addr || addr.toLowerCase().startsWith("guest")) {
@@ -1185,7 +1185,7 @@ export default function FarmingGame() {
     }
   };
 
-  // â”€â”€ Keyboard input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Keyboard input ────────────────────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // Block all input during demo
@@ -1235,13 +1235,13 @@ export default function FarmingGame() {
   }, [doSwitchMap, introTutorialDone]);
 
 
-  // â”€â”€ Game loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Game loop ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !loaded) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.imageSmoothingEnabled = false; // HD rendering â€” no more "pecah grafik"
+    ctx.imageSmoothingEnabled = false; // HD rendering — no more "pecah grafik"
 
 
 
@@ -1315,7 +1315,7 @@ export default function FarmingGame() {
       }
 
       if (stateRef.current.activePanel !== activePanel) setActivePanel(stateRef.current.activePanel);
-      // â”€â”€ LOOP PERFORMANCE: Update UI at 15fps instead of 8fps for smoother feedback â”€â”€
+      // ── LOOP PERFORMANCE: Update UI at 15fps instead of 8fps for smoother feedback ──
       if (Math.floor(ts / 66) !== Math.floor((ts - dt) / 66)) {
         setDs({ ...stateRef.current });
       }
@@ -1338,7 +1338,7 @@ export default function FarmingGame() {
     };
   }, [loaded, splashDone, introTutorialDone, walletDeeplinkVersion]);
 
-  // â”€â”€ Tool selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tool selection ────────────────────────────────────────────────────────
   const selectTool = (toolId: string) => {
     AudioManager.playSFX("click");
     const cropGate = toolIdToCrop(toolId);
@@ -1376,7 +1376,7 @@ export default function FarmingGame() {
     setDs({ ...stateRef.current });
   };
 
-  // â”€â”€ Farm Boost (limited uses â€” speeds up all growing crops by 30%) â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Farm Boost (limited uses — speeds up all growing crops by 30%) ────────
   const useFarmBoost = () => {
     const s = stateRef.current;
     if (s.currentMap === "fishing" && s.player.y > 550) {
@@ -1412,7 +1412,7 @@ export default function FarmingGame() {
     e.preventDefault();
   };
 
-  // â”€â”€ Canvas click / touch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Canvas click / touch ──────────────────────────────────────────────────
   const onClick = (e: React.MouseEvent) => {
     if (isMobile) return;
     if (activePanel) return;
@@ -1450,7 +1450,7 @@ export default function FarmingGame() {
     setDs({ ...stateRef.current });
   };
 
-  // â”€â”€ Shop buy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shop buy ──────────────────────────────────────────────────────────────
   const buyItem = (id: string, price: number, e?: React.MouseEvent) => {
     const s = stateRef.current;
     const effPrice = id.endsWith("-seed") ? getShopSeedPrice(id, price, s.farmBalancePreset) : price;
@@ -1485,7 +1485,7 @@ export default function FarmingGame() {
   const claimableQuests = splashDone && introTutorialDone && worldMapDone ? getClaimableQuests(ds) : [];
   const farmGuide = ds.currentMap === "home" ? getFarmStatusGuide(ds.farmPlots, ds.player.tool) : null;
 
-  // â”€â”€ Map context hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Map context hints ─────────────────────────────────────────────────────
   const MAP_REASON: Record<string, string> = {
     city:     "ALPHA — Seeds & GOLD loop. Walk to SHOP signs or tap SHOP.",
     fishing:  "Relax by the water — CAST, wait for a bite, PULL to reel.",
@@ -1506,7 +1506,7 @@ export default function FarmingGame() {
   };
 
   // Cover mode: canvas always fills full viewport, no black bars
-  // Camera system handles what's visible â€” same as CSS background-size:cover
+  // Camera system handles what's visible — same as CSS background-size:cover
   const gameContainerStyle: React.CSSProperties = {
     position: "absolute",
     inset: 0,
@@ -1514,7 +1514,7 @@ export default function FarmingGame() {
     height: "100%",
   };
 
-  // â”€â”€ RENDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div ref={gameRootRef} style={containerStyle}>
       <style>{`
@@ -1614,17 +1614,17 @@ export default function FarmingGame() {
         }
       `}</style>
 
-      {/* â”€â”€ LOGO â”€â”€ */}
+      {/* ── LOGO ── */}
       {splashDone && (walletConnected || walletAddress.toLowerCase().startsWith("guest")) && !isMobile && (
         <div className="logo-container"><img src="/logo.png" alt="LIFETOPIA" className="logo-img" /></div>
       )}
 
-      {/* â”€â”€ COIN BURST ANIMATION â”€â”€ */}
+      {/* ── COIN BURST ANIMATION ── */}
       {coinBursts.map((b) => (
         <div key={b.id} style={{ position: "absolute", left: b.sx, top: b.sy, width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: 2, background: "#FFD700", boxShadow: "0 0 6px #FFF8", pointerEvents: "none", zIndex: 2500, ["--cdx" as string]: `${b.tx - b.sx}px`, ["--cdy" as string]: `${b.ty - b.sy}px`, animation: "coinFlyToHud 0.65s ease-out forwards" }} />
       ))}
 
-      {/* â”€â”€ CANVAS â”€â”€ */}
+      {/* ── CANVAS ── */}
       <div style={gameContainerStyle}>
       <canvas
         ref={canvasRef}
@@ -1777,10 +1777,10 @@ export default function FarmingGame() {
       />
       </div>
 
-      {/* â”€â”€ ACTION POPUP â”€â”€ */}
+      {/* ── ACTION POPUP ── */}
       <ActionPopup popup={actionPopup} onDone={() => setActionPopup(null)} />
 
-      {/* â”€â”€ UNITY-STYLE 2D VFX OVERLAY â”€â”€ */}
+      {/* ── UNITY-STYLE 2D VFX OVERLAY ── */}
       {vfxOverlay.map(p => {
         if (p.type === "star") return (
           <div key={p.id} className="vfx-star" style={{
@@ -1819,15 +1819,15 @@ export default function FarmingGame() {
         );
       })}
 
-      {/* â”€â”€ SPLASH â”€â”€ */}
+      {/* ── SPLASH ── */}
       {!splashDone && <SplashScreen onSelectMap={handleSplashSelect} />}
 
-      {/* â”€â”€ PRE-FARM TUTORIAL â”€â”€ */}
+      {/* ── PRE-FARM TUTORIAL ── */}
       {splashDone && !introTutorialDone && (
         <PreFarmTutorial visible={true} onFinished={handlePreFarmTutorialFinished} onMapFocus={handlePreFarmMapFocus} />
       )}
 
-      {/* â”€â”€ WORLD MAP (shown after tutorial on desktop + mobile) â”€â”€ */}
+      {/* ── WORLD MAP (shown after tutorial on desktop + mobile) ── */}
       {splashDone && introTutorialDone && !ds.demoMode && showWorldMap && (
         <WorldMapScreen
           onSelectMap={(map) => {
@@ -1838,7 +1838,7 @@ export default function FarmingGame() {
         />
       )}
 
-      {/* â”€â”€ MOBILE HUD (compact, single screen) â€” hidden when WorldMapScreen is open â”€â”€ */}
+      {/* ── MOBILE HUD (compact, single screen) — hidden when WorldMapScreen is open ── */}
       {isMobile && splashDone && introTutorialDone && !ds.demoMode && !showWorldMap && (
         <MobileHUD
           ds={ds}
@@ -1933,10 +1933,10 @@ export default function FarmingGame() {
         />
       )}
 
-      {/* â”€â”€ DESKTOP TOP NAV â”€â”€ */}
+      {/* ── DESKTOP TOP NAV ── */}
       {!isMobile && !showWorldMap && (
         <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 8, alignItems: "center" }}>
-          {/* â”€â”€ MAP BUTTON â”€â”€ */}
+          {/* ── MAP BUTTON ── */}
           <button
             className="wb gf"
             onClick={() => { setShowWorldMap(true); AudioManager.playSFX("click"); }}
@@ -2000,7 +2000,7 @@ export default function FarmingGame() {
         </div>
       )}
 
-      {/* â”€â”€ FARM STATUS BAR â”€â”€ */}
+      {/* ── FARM STATUS BAR ── */}
       {splashDone && introTutorialDone && worldMapDone && !showWorldMap && !activePanel && ds.currentMap === "home" && farmGuide && (
         <div style={{
           position: "absolute",
@@ -2044,7 +2044,7 @@ export default function FarmingGame() {
       )}
 
 
-      {/* â”€â”€ MAP CONTEXT HINT (non-farm maps) â”€â”€ */}
+      {/* ── MAP CONTEXT HINT (non-farm maps) ── */}
       {mapHint && !activePanel && (
         <div style={{
           position: "absolute",
@@ -2072,7 +2072,7 @@ export default function FarmingGame() {
         </div>
       )}
 
-      {/* â”€â”€ DESKTOP TOOL TRAY + BOOST BUTTON â”€â”€ */}
+      {/* ── DESKTOP TOOL TRAY + BOOST BUTTON ── */}
       {!isMobile && !showWorldMap && (
         <div style={{ position: "absolute", bottom: 100, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, pointerEvents: "auto" }}
           onClick={(e) => e.stopPropagation()}
@@ -2239,7 +2239,7 @@ export default function FarmingGame() {
 
 
 
-      {/* â”€â”€ PANELS OVERLAY â€” compact on mobile â”€â”€ */}
+      {/* ── PANELS OVERLAY — compact on mobile ── */}
       {activePanel && (
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: `env(safe-area-inset-top,0) ${isMobile ? 8 : 16}px env(safe-area-inset-bottom,0)` }} onClick={(e) => { if (e.target === e.currentTarget) closePanel(); }}>
           <div className="wood-panel" style={{ padding: 0, minWidth: isMobile ? "min(300px,94vw)" : 280, maxWidth: isMobile ? "94vw" : 380, maxHeight: isMobile ? "72dvh" : "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -2257,7 +2257,7 @@ export default function FarmingGame() {
             </div>
             <div style={{ padding: isMobile ? 8 : 14, color: "#4D2D18", overflowY: "auto", flex: 1 }} className="gf">
 
-              {/* â”€â”€ WALLET PANEL â€” compact for mobile â”€â”€ */}
+              {/* ── WALLET PANEL — compact for mobile ── */}
               {activePanel === "wallet" && (
                 <div style={{ textAlign: "center" }}>
                   {walletType !== null ? (
@@ -2286,7 +2286,7 @@ export default function FarmingGame() {
                           INIT TOKEN ACCOUNT
                         </button>
                         <a href={`https://solscan.io/address/${walletAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
-                          <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}>SOLSCAN â†—</button>
+                          <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}>SOLSCAN ↖</button>
                         </a>
                         <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 6, padding: isMobile ? "6px" : "10px", marginTop: isMobile ? 2 : 4, background: "linear-gradient(180deg,#8B2020,#5C1010)", borderColor: "#8B2020" }}
                           onClick={() => { disconnectWallet(); AudioManager.playSFX("click"); closePanel(); }}>
@@ -2312,7 +2312,7 @@ export default function FarmingGame() {
                         <span className="gf" style={{ fontSize: 5, color: "rgba(255,255,255,0.3)" }}>OR EXTENSIONS</span>
                         <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.15)" }} />
                       </div>
-                      {/* Phantom â€” green dot if found (injected) OR mobile native detected */}
+                      {/* Phantom — green dot if found (injected) OR mobile native detected */}
                       <button className="wb gf" onClick={() => connectPhantom()} disabled={connectingWallet !== null}
                         style={{ fontSize: isMobile ? 6 : 8, padding: isMobile ? "8px" : "14px", background: "linear-gradient(180deg,#A0693A,#6B3E1E)", border: "2px solid #7C5230", color: "#FFE4B5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", width: "100%", borderRadius: 999, boxShadow: "0 3px 0 #3E1F08" }}>
                         <span style={{ flex: 1, textAlign: "center" }}>{connectingWallet === "phantom" ? "..." : "PHANTOM"}</span>
@@ -2375,7 +2375,7 @@ export default function FarmingGame() {
                         {/* Streak display */}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <div style={{ fontSize: 8, color: "#FFD700", fontFamily: "'Press Start 2P', monospace" }}>🔥 {streak.consecutiveDays}</div>
+                            <div style={{ fontSize: 8, color: "#FFD700", fontFamily: "'Press Start 2P', monospace" }}>{streak.consecutiveDays}</div>
                             <div style={{ fontSize: 5, color: "#CCC" }}>DAY STREAK</div>
                           </div>
                           {loginReward && (
@@ -2397,7 +2397,7 @@ export default function FarmingGame() {
                             </button>
                           )}
                           {!loginReward && (
-                            <div style={{ fontSize: 5, color: "#888", fontFamily: "'Press Start 2P', monospace" }}>REWARD CLAIMED ✓</div>
+                            <div style={{ fontSize: 5, color: "#888", fontFamily: "'Press Start 2P', monospace" }}>REWARD CLAIMED</div>
                           )}
                         </div>
 
@@ -2419,7 +2419,7 @@ export default function FarmingGame() {
                                 <div style={{ fontSize: 3, color: isClaimed ? "#FFD700" : "#FFF", fontFamily: "'Press Start 2P', monospace" }}>{r.day}d</div>
                                 <div style={{ fontSize: 4, color: "#FFD700" }}>{r.gold}G</div>
                                 {r.milestone && <div style={{ fontSize: 3, color: "#FF8A80" }}>{r.milestone}</div>}
-                                {isClaimed && <div style={{ fontSize: 4 }}>✓</div>}
+                                {isClaimed && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4CAF50", margin: "2px auto" }} />}
                               </div>
                             );
                           })}
@@ -2446,7 +2446,7 @@ export default function FarmingGame() {
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                               {descs.map(([boost]) => (
                                 <div key={boost} style={{ background: "rgba(255,215,0,0.15)", border: "1px solid #FFD700", borderRadius: 6, padding: "3px 6px", fontSize: 4, color: "#FFD700" }}>
-                                  ⚡ {boost.replace(/_/g, " ")}
+                                  {boost.replace(/_/g, " ")}
                                 </div>
                               ))}
                             </div>
@@ -2499,7 +2499,7 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ INVENTORY PANEL â”€â”€ */}
+              {/* ── INVENTORY PANEL ── */}
               {/* INVENTORY PANEL */}
               {activePanel === "inventory" && (
                 <div>
@@ -2539,7 +2539,7 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ NFT PANEL â”€â”€ */}
+              {/* ── NFT PANEL ── */}
               {activePanel === "nft" && (
                 <div style={{ textAlign: "center" }}>
                   {nfts.length > 0 ? (
@@ -2553,7 +2553,7 @@ export default function FarmingGame() {
                               <a href={`https://solscan.io/account/${addr}`} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none" }}>
                                 <div style={{ background: "rgba(0,0,0,0.4)", borderTop: "2px solid #5C4033", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
                                   <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 6, color: "#FFFFFF" }}>solscan.io/{addr.slice(0,6)}...{addr.slice(-4)}</span>
-                                  <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 6, color: "#FFFFFF" }}>TRACK â†’</span>
+                                  <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 6, color: "#FFFFFF" }}>TRACK →</span>
                                 </div>
                               </a>
                             )}
@@ -2577,7 +2577,7 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ SHOP PANEL â”€â”€ */}
+              {/* ── SHOP PANEL ── */}
               {activePanel === "shop" && (
                 <div style={{ padding: "0 10px 10px" }}>
                   <div className="gf" style={{ fontSize: 13, color: "var(--wood-dark)", marginBottom: 12, textAlign: "center", fontWeight: "bold" }}>
@@ -2609,7 +2609,7 @@ export default function FarmingGame() {
                 </div>
               )}
 
-              {/* â”€â”€ SETTINGS PANEL â”€â”€ */}
+              {/* ── SETTINGS PANEL ── */}
               {activePanel === "settings" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: "#8B4513", marginBottom: 4 }}>SOUND CONTROL</div>
@@ -2621,7 +2621,7 @@ export default function FarmingGame() {
                   <div style={{ fontSize: 6, color: "#D4AF37", marginBottom: 8, lineHeight: 1.8 }}>
                     EASY: Fast grow, low reward<br/>
                     MEDIUM: Balanced (recommended)<br/>
-                    HARD: Slow grow, 5Ã— gold reward
+                    HARD: Slow grow, 5× gold reward
                   </div>
                   {(["easy","medium","hard"] as FarmBalancePreset[]).map((preset) => (
                     <button key={preset} className={`wb gf ${ds.farmBalancePreset === preset ? "active" : ""}`} style={{ width: "100%", fontSize: 7, padding: "12px" }} onClick={() => applyBalancePreset(preset)}>
@@ -2749,12 +2749,12 @@ export default function FarmingGame() {
         </div>
       )}
 
-      {/* â”€â”€ LOGO â”€â”€ */}
+      {/* ── LOGO ── */}
       {splashDone && (walletConnected || walletAddress.toLowerCase().startsWith("guest")) && !isMobile && (
         <div className="logo-container"><img src="/logo.png" alt="LIFETOPIA" className="logo-img" /></div>
       )}
 
-      {/* â”€â”€ SKIP DEMO (Rectangular wood style) â”€â”€ */}
+      {/* ── SKIP DEMO (Rectangular wood style) ── */}
       {ds.demoMode && (
         <button
           onClick={() => abortDemo()}
@@ -2819,7 +2819,7 @@ export default function FarmingGame() {
         </div>
       )}
 
-      {/* â”€â”€ LEVEL UP POPUP â”€â”€ */}
+      {/* ── LEVEL UP POPUP ── */}
       {ds.levelUpPopup && ds.time < ds.levelUpPopup.until && (
         <div style={{ position: "absolute", inset: 0, zIndex: 5500, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 100%)" }}>
           <div className="gf" style={{ padding: "28px 40px", maxWidth: 520, textAlign: "center", textShadow: "0 0 20px #FFD700" }}>
@@ -2829,7 +2829,7 @@ export default function FarmingGame() {
         </div>
       )}
 
-      {/* â”€â”€ NOTIFICATION BANNER â”€â”€ */}
+      {/* ── NOTIFICATION BANNER ── */}
       {ds.notification && (
         <div style={{ position: "absolute", top: isMobile ? "15%" : "20%", left: "50%", transform: "translateX(-50%)", zIndex: 5000, pointerEvents: "none" }}>
           <div className="gf" style={{ padding: "14px 28px", fontSize: isMobile ? 12 : 14, color: "#FFD700", textShadow: "2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000", textAlign: "center", maxWidth: isMobile ? "85vw" : "none", lineHeight: 1.5 }}>
@@ -2837,7 +2837,7 @@ export default function FarmingGame() {
           </div>
         </div>
       )}
-      {/* â”€â”€ FISHING REGION LABELS â”€â”€ */}
+      {/* ── FISHING REGION LABELS ── */}
       {splashDone && ds.currentMap === "fishing" && !activePanel && (
         <div style={{ position: "absolute", bottom: isMobile ? 100 : 40, left: "50%", transform: "translateX(-50%)", display: "flex", gap: isMobile ? 8 : 20, pointerEvents: "none" }}>
           <div className="gf" style={{ fontSize: isMobile ? 5 : 8, color: "rgba(255,255,255,0.7)", textShadow: "1px 1px 0 #000" }}>

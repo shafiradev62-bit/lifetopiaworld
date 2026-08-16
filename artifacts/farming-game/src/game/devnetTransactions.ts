@@ -109,10 +109,10 @@ export async function devnetMintToPlayer(
     }
 
     await devnetConnection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-    console.log(`[DevnetTx] ✅ Minted ${amount} LFG → ${playerWallet} | ${reason} | tx: ${sig}`);
+    console.log(`[DevnetTx] Minted ${amount} LFG → ${playerWallet} | ${reason} | tx: ${sig}`);
     return { success: true, txid: sig };
   } catch (e: any) {
-    console.error(`[DevnetTx] ❌ Mint failed (${reason}):`, e.message);
+    console.error(`[DevnetTx] Mint failed (${reason}):`, e.message);
     return { success: false, error: e.message };
   }
 }
@@ -143,7 +143,7 @@ export async function devnetBurnFromPlayer(
       sig = await devnetConnection.sendRawTransaction(signed.serialize());
     }
     await devnetConnection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "processed");
-    console.log(`[DevnetTx] 🔥 Burned ${amount} LFG | ${reason} | tx: ${sig}`);
+    console.log(`[DevnetTx] Burned ${amount} LFG | ${reason} | tx: ${sig}`);
     return { success: true, txid: sig };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -190,8 +190,8 @@ export function unregisterDevnetHooks() {
 function fireIfReady(reason: string, amount: number): Promise<void> {
   if (!_hooks) return Promise.resolve();
   return devnetMintToPlayer(_hooks.walletAddress, amount, reason, _hooks.provider)
-    .then(r => { if (r.success) console.log(`[DevnetHooks] ✅ ${reason}: +${amount} LFG`); })
-    .catch(e => console.warn(`[DevnetHooks] ❌ ${reason}:`, e.message));
+    .then(r => { if (r.success) console.log(`[DevnetHooks] ${reason}: +${amount} LFG`); })
+    .catch(e => console.warn(`[DevnetHooks] ${reason}:`, e.message));
 }
 
 export function onHarvestCrop(cropType: string, isRare: boolean): Promise<void> {
@@ -217,6 +217,6 @@ export function onShopPurchase(itemId: string, priceGold: number): Promise<void>
   const burnAmount = Math.round(priceGold * 0.5);
   if (!_hooks || burnAmount < 1) return Promise.resolve();
   return devnetBurnFromPlayer(_hooks.walletAddress, _hooks.provider, burnAmount, `shop:${itemId}`)
-    .then(r => { if (r.success) console.log(`[DevnetHooks] 🔥 Shop burn: ${burnAmount} LFG`); })
-    .catch(e => console.warn(`[DevnetHooks] ❌ Shop burn:`, e.message));
+    .then(r => { if (r.success) console.log(`[DevnetHooks] Shop burn: ${burnAmount} LFG`); })
+    .catch(e => console.warn(`[DevnetHooks] Shop burn:`, e.message));
 }
