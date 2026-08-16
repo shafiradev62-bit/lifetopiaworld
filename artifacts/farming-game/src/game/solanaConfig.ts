@@ -2,9 +2,9 @@
  * Single source of truth: Public Alpha runs entirely on Solana Devnet.
  * One mint address drives LFG-style token ops + on-chain utility / boost checks (GDD §8).
  *
- * MINT ADDRESS RESMI DEVNET: ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu
- *     Semua integrasi (COIN off-chain, GOLD on-chain) harus pakai address ini.
- *     Jangan ganti tanpa update .env dan semua referensi di bawah.
+ * Official devnet mint: ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu
+ * All integrations (off-chain COIN, on-chain GOLD) must use this address.
+ * Do not change it without updating .env and every reference below.
  */
 
 function envTrim(key: string): string {
@@ -17,14 +17,14 @@ export const LIFETOPIA_DEVNET_RPC =
   envTrim("VITE_SOLANA_DEVNET_RPC") || "https://api.devnet.solana.com";
 
 /**
- * MINT ADDRESS RESMI — jangan ganti tanpa koordinasi tim.
- * Semua integrasi devnet (COIN off-chain = GOLD on-chain) pakai address ini.
+ * Official mint address — do not change without team coordination.
+ * All devnet integrations (off-chain COIN = on-chain GOLD) use this address.
  */
 export const CANONICAL_DEVNET_MINT = "ByrXMnACFFyvsL6d4yKFguCK8CNRJDMSWWshLejaApVu";
 
 /**
- * Resolve mint: env var bisa override untuk testing lokal,
- * tapi canonical mint selalu jadi fallback terakhir.
+ * Resolve mint: an env override can be used for local testing,
+ * but the canonical mint is always the final fallback.
  */
 export function resolveLifetopiaAlphaMint(): string {
   const envMint = envTrim("VITE_LIFETOPIA_ALPHA_MINT");
