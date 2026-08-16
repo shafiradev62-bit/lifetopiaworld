@@ -1,0 +1,54 @@
+# Environment — NEVER commit real keys
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Build output
+dist/
+dist-ssr/
+
+# Dependencies
+node_modules/
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Android / Capacitor build artifacts
+android/app/build/
+android/.gradle/
+*.apk
+*.aab
+*.ap_
+*.aar
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Capacitor
+android/capacitor-cordova-android-plugins/
+
+# Rollup cache
+.turbo/
+
+# Vitest
+vitest.workspace.js
+
+# Capacitor config (generated at build time, not needed in repo)
+# android/app/src/main/assets/capacitor.config.json
+# android/app/src/main/assets/capacitor.plugins.json
