@@ -169,6 +169,7 @@ export default function FarmingGame() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
   const [walletType, setWalletType] = useState<"solana" | "evm" | null>(null);
+  const [walletLabel, setWalletLabel] = useState<string>("");
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [showOutfitPanel, setShowOutfitPanel] = useState(false);
   const [nfts, setNfts] = useState<string[]>([]);
@@ -808,6 +809,7 @@ export default function FarmingGame() {
     const gAddr = `guest_${guestId.slice(6, 16)}`;
     setWalletAddress(gAddr);
     setWalletType(null);
+    setWalletLabel("");
     setWalletConnected(true);
     stateRef.current.player.walletAddress = gAddr;
     AudioManager.playSFX("click");
@@ -822,6 +824,7 @@ export default function FarmingGame() {
     walletProviderRef.current = provider;
     setWalletAddress(addr);
     setWalletType(type);
+    setWalletLabel(label ?? (type === "solana" ? "PHANTOM" : "METAMASK"));
     setWalletConnected(true);
     localStorage.setItem("wallet_addr", addr);
     localStorage.setItem("wallet_type", type);
@@ -877,6 +880,7 @@ export default function FarmingGame() {
     setWalletConnected(false);
     setWalletAddress("");
     setWalletType(null);
+    setWalletLabel("");
     walletProviderRef.current = null;
     lastSyncedGoldRef.current = 0;
     unregisterDevnetHooks();
@@ -1493,7 +1497,11 @@ export default function FarmingGame() {
     suburban: "Cozy slice — explore; progression unlocks more maps.",
   };
   const mapHint = splashDone && introTutorialDone && ds.currentMap !== "home"
-    ? MAP_REASON[ds.currentMap] ?? null : null;
+    ? (MAP_REASON[ds.currentMap] ?? "") +
+      (walletType !== null
+        ? " | " + (walletLabel === "WDK WALLET" ? "SELF-CUSTODIAL WALLET ACTIVE" : "WALLET LINKED")
+        : "")
+    : null;
 
   const containerStyle: React.CSSProperties = {
     position: "absolute",
@@ -1933,6 +1941,41 @@ export default function FarmingGame() {
         />
       )}
 
+      {/* ── MOBILE WALLET CHIP (always visible while connected — WDK-aware) ── */}
+      {isMobile && splashDone && introTutorialDone && !ds.demoMode && !showWorldMap && walletConnected && walletType !== null && !activePanel && (
+        <button
+          type="button"
+          className="wb gf"
+          onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
+          style={{
+            position: "absolute",
+            top: 8,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            background: walletLabel === "WDK WALLET" ? "linear-gradient(180deg,#ab9ff2,#512da8)" : "rgba(0,0,0,0.75)",
+            border: `2px solid ${walletLabel === "WDK WALLET" ? "#ab9ff2" : "#D4AF37"}`,
+            borderRadius: 999,
+            color: "#FFFFFF",
+            fontSize: 8,
+            padding: "4px 10px",
+            letterSpacing: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+            background: walletLabel === "WDK WALLET" ? "#B9F6CA" : "#FFD700",
+            boxShadow: walletLabel === "WDK WALLET" ? "0 0 6px #69F0AE" : "0 0 6px #FFD700",
+            animation: "walletPulse 2s infinite",
+          }} />
+          {walletLabel === "WDK WALLET" ? "SELF-CUSTODIAL" : walletLabel} | LFG {devnetLFGBalance.toFixed(2)}
+        </button>
+      )}
+
       {/* ── DESKTOP TOP NAV ── */}
       {!isMobile && !showWorldMap && (
         <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 8, alignItems: "center" }}>
@@ -1977,7 +2020,7 @@ export default function FarmingGame() {
           >
             DEVNET
           </button>
-          {walletType === null && (
+          {walletType === null ? (
             <button
               className="wb gf"
               onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
@@ -1993,6 +2036,36 @@ export default function FarmingGame() {
               }}
             >
               CONNECT WALLET
+            </button>
+          ) : (
+            <button
+              className="wb gf"
+              onClick={() => { setActivePanel("wallet"); AudioManager.playSFX("click"); }}
+              style={{
+                background: walletLabel === "WDK WALLET"
+                  ? "linear-gradient(180deg,#ab9ff2,#512da8)"
+                  : "linear-gradient(180deg,#3d3d3d,#1a1a1a)",
+                border: `3px solid ${walletLabel === "WDK WALLET" ? "#ab9ff2" : "#D4AF37"}`,
+                boxShadow: walletLabel === "WDK WALLET"
+                  ? "0 4px 0 #2a1654, 0 0 8px rgba(171,159,242,0.4)"
+                  : "0 4px 0 #000, 0 0 8px rgba(212,175,55,0.3)",
+                color: "#FFFFFF",
+                fontSize: 7,
+                padding: "8px 14px",
+                letterSpacing: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{
+                width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                background: walletLabel === "WDK WALLET" ? "#B9F6CA" : "#FFD700",
+                boxShadow: walletLabel === "WDK WALLET" ? "0 0 6px #69F0AE" : "0 0 6px #FFD700",
+                animation: "walletPulse 2s infinite",
+              }} />
+              {walletLabel === "WDK WALLET" ? "SELF-CUSTODIAL WALLET" : walletLabel}
+              <span style={{ opacity: 0.9 }}>| LFG {devnetLFGBalance.toFixed(2)}</span>
             </button>
           )}
           <button className="wb gf" style={{ fontSize: 10, padding: "6px 10px" }} onClick={() => { setActivePanel("settings"); AudioManager.playSFX("click"); }}>SET</button>
