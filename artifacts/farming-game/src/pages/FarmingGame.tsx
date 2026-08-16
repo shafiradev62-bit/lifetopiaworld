@@ -40,7 +40,13 @@ import {
 import { solanaWallet } from "../game/Web3Config";
 import {
   connectWdkWallet, hasWdkSeed, disconnectWdkWallet, getWdkAddress,
+  transferWdkUsdt, getWdkWalletSnapshot,
+  getWdkVaultAddress, getWdkSeedPhrase, importWdkWallet, formatUsdtBalance,
+  getWdkEvmAddress, getWdkEvmBalances, transferWdkEvmUsdt, formatEthBalance,
+  isWdkGaslessConfigured, getWdkGaslessUsdtBalance,
+  quoteWdkGaslessUsdt, sendWdkGaslessUsdt,
 } from "../game/wdkWallet";
+import { fetchRecentTransactions, type WalletTx } from "../game/walletHistory";
 import WorldMapScreen from "../components/WorldMapScreen";
 import MobileHUD, { mobileHudAccentBtnStyle, mobileHudActionBtnStyle } from "../components/MobileHUD";
 import ActionPopup, { type ActionPopupData } from "../components/ActionPopup";
@@ -280,6 +286,34 @@ export default function FarmingGame() {
   const [showTxPopup, setShowTxPopup] = useState(false);
   const [devnetLFGBalance, setDevnetLFGBalance] = useState<number>(0);
 
+  // ── WDK wallet panel state (self-custodial wallet details) ──────────────────
+  const [usdtBalance, setUsdtBalance] = useState<number>(0);
+  const [solBalance, setSolBalance] = useState<number>(0);
+  const [wdkTxHistory, setWdkTxHistory] = useState<WalletTx[]>([]);
+  const [vaultAddress, setVaultAddress] = useState<string>("");
+  const [showSeedBackup, setShowSeedBackup] = useState(false);
+  const [seedBackupConfirmed, setSeedBackupConfirmed] = useState(false);
+  const [sendUsdtOpen, setSendUsdtOpen] = useState(false);
+  const [usdtRecipient, setUsdtRecipient] = useState("");
+  const [usdtAmount, setUsdtAmount] = useState("");
+  const [importSeedOpen, setImportSeedOpen] = useState(false);
+  const [importSeedValue, setImportSeedValue] = useState("");
+  const [wdkBusy, setWdkBusy] = useState<string | null>(null);
+
+  // ── WDK multichain (EVM) + gasless panel state ──────────────────────────────
+  const [evmAddress, setEvmAddress] = useState<string>("");
+  const [ethBalance, setEthBalance] = useState<string>("0.0000");
+  const [evmUsdtBalance, setEvmUsdtBalance] = useState<number>(0);
+  const [gaslessConfigured] = useState<boolean>(() => isWdkGaslessConfigured());
+  const [gaslessUsdtBalance, setGaslessUsdtBalance] = useState<number>(0);
+  const [sendEvmUsdtOpen, setSendEvmUsdtOpen] = useState(false);
+  const [evmRecipient, setEvmRecipient] = useState("");
+  const [evmAmount, setEvmAmount] = useState("");
+  const [sendGaslessOpen, setSendGaslessOpen] = useState(false);
+  const [gaslessRecipient, setGaslessRecipient] = useState("");
+  const [gaslessAmount, setGaslessAmount] = useState("");
+  const [gaslessQuoteFee, setGaslessQuoteFee] = useState<string | null>(null);
+
   // ── Devnet TX: Airdrop 5 LFG (mint from treasury) ───────────────────────────
   const devnetAirdrop = async () => {
     if (!walletConnected || walletAddress.startsWith('guest')) {
@@ -504,6 +538,171 @@ export default function FarmingGame() {
       cleanupVisibility();
     };
   }, [walletConnected, walletAddress, syncBlockchainData]);
+
+  // ── WDK wallet panel data (balances, vault, transaction history) ────────────
+  const refreshWdkData = useCallback(async () => {
+    if (walletLabel !== "WDK WALLET" || !walletConnected) return;
+    try {
+      const snap = await getWdkWalletSnapshot();
+      setSolBalance(Number(snap.solLamports) / 1e9);
+      setUsdtBalance(Number(snap.usdtBaseUnits) / 1e6);
+      getWdkVaultAddress().then(setVaultAddress).catch(() => {});
+      fetchRecentTransactions(snap.address, 8).then(setWdkTxHistory).catch(() => {});
+      // Multichain: EVM (Sepolia) balances from the same seed.
+      getWdkEvmAddress().then(setEvmAddress).catch(() => {});
+      getWdkEvmBalances().then((evm) => {
+        setEthBalance(formatEthBalance(evm.ethWei));
+        setEvmUsdtBalance(Number(evm.usdtBaseUnits) / 1e6);
+      }).catch(() => {});
+      // Gasless: paymaster-token balance (only when a paymaster is configured).
+      if (isWdkGaslessConfigured()) {
+        getWdkGaslessUsdtBalance().then((b) => setGaslessUsdtBalance(Number(b) / 1e6)).catch(() => {});
+      }
+    } catch (e) {
+      console.warn("[WDK] Wallet panel refresh stalled:", e);
+    }
+  }, [walletConnected, walletLabel]);
+
+  useEffect(() => {
+    if (walletLabel !== "WDK WALLET" || !walletConnected) return;
+    refreshWdkData();
+    const id = setInterval(refreshWdkData, 15_000);
+    return () => clearInterval(id);
+  }, [walletConnected, walletLabel, refreshWdkData]);
+
+  // ── WDK wallet actions: send USDT + import seed phrase ──────────────────────
+  const sendUsdt = async () => {
+    const recipient = usdtRecipient.trim();
+    const amount = parseFloat(usdtAmount);
+    if (!recipient || recipient.length < 32) {
+      stateRef.current.notification = { text: "ENTER A VALID RECIPIENT ADDRESS!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    if (!isFinite(amount) || amount <= 0) {
+      stateRef.current.notification = { text: "ENTER A VALID AMOUNT!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    const baseUnits = BigInt(Math.round(amount * 1e6));
+    setWdkBusy("usdt-send");
+    try {
+      const res = await transferWdkUsdt(recipient, baseUnits);
+      setLastTxId(res.hash);
+      setShowTxPopup(true);
+      setSendUsdtOpen(false);
+      setUsdtRecipient("");
+      setUsdtAmount("");
+      void refreshWdkData();
+      stateRef.current.notification = { text: `SENT ${formatUsdtBalance(baseUnits)} USDT ON DEVNET!`, life: 150 };
+      setDs({ ...stateRef.current });
+    } catch (e: any) {
+      console.warn("[WDK] USDT send blocked:", e);
+      stateRef.current.notification = { text: (e?.message || "SEND FAILED").toUpperCase().slice(0, 40), life: 160 };
+      setDs({ ...stateRef.current });
+    } finally {
+      setWdkBusy(null);
+    }
+  };
+
+  const sendEvmUsdt = async () => {
+    const recipient = evmRecipient.trim();
+    const amount = parseFloat(evmAmount);
+    if (!recipient || recipient.length < 42) {
+      stateRef.current.notification = { text: "ENTER A VALID EVM RECIPIENT!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    if (!isFinite(amount) || amount <= 0) {
+      stateRef.current.notification = { text: "ENTER A VALID AMOUNT!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setWdkBusy("evm-send");
+    try {
+      const baseUnits = BigInt(Math.round(amount * 1e6));
+      const res = await transferWdkEvmUsdt(recipient, baseUnits);
+      setLastTxId(res.hash);
+      setShowTxPopup(true);
+      setSendEvmUsdtOpen(false);
+      setEvmRecipient("");
+      setEvmAmount("");
+      void refreshWdkData();
+      stateRef.current.notification = { text: `SENT ${amount.toFixed(2)} USDT ON SEPOLIA!`, life: 150 };
+      setDs({ ...stateRef.current });
+    } catch (e: any) {
+      console.warn("[WDK] EVM USDT send blocked:", e);
+      stateRef.current.notification = { text: (e?.message || "SEND FAILED").toUpperCase().slice(0, 40), life: 160 };
+      setDs({ ...stateRef.current });
+    } finally {
+      setWdkBusy(null);
+    }
+  };
+
+  const quoteGasless = async () => {
+    const recipient = gaslessRecipient.trim();
+    const amount = parseFloat(gaslessAmount);
+    if (!recipient || recipient.length < 32 || !isFinite(amount) || amount <= 0) {
+      stateRef.current.notification = { text: "ENTER RECIPIENT + AMOUNT!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setWdkBusy("gasless-quote");
+    try {
+      const q = await quoteWdkGaslessUsdt(recipient, BigInt(Math.round(amount * 1e6)));
+      setGaslessQuoteFee(formatUsdtBalance(q.feeBaseUnits));
+    } catch (e: any) {
+      console.warn("[WDK] Gasless quote failed:", e);
+      stateRef.current.notification = { text: (e?.message || "QUOTE FAILED").toUpperCase().slice(0, 40), life: 160 };
+      setDs({ ...stateRef.current });
+    } finally {
+      setWdkBusy(null);
+    }
+  };
+
+  const sendGaslessUsdt = async () => {
+    const recipient = gaslessRecipient.trim();
+    const amount = parseFloat(gaslessAmount);
+    if (!recipient || recipient.length < 32 || !isFinite(amount) || amount <= 0) {
+      stateRef.current.notification = { text: "ENTER RECIPIENT + AMOUNT!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setWdkBusy("gasless-send");
+    try {
+      const baseUnits = BigInt(Math.round(amount * 1e6));
+      const res = await sendWdkGaslessUsdt(recipient, baseUnits);
+      setLastTxId(res.hash);
+      setShowTxPopup(true);
+      setSendGaslessOpen(false);
+      setGaslessRecipient("");
+      setGaslessAmount("");
+      setGaslessQuoteFee(null);
+      void refreshWdkData();
+      stateRef.current.notification = { text: `GASLESS SENT ${amount.toFixed(2)} USDT — FEE ${formatUsdtBalance(res.fee)} USDT`, life: 200 };
+      setDs({ ...stateRef.current });
+    } catch (e: any) {
+      console.warn("[WDK] Gasless send failed:", e);
+      stateRef.current.notification = { text: (e?.message || "GASLESS FAILED").toUpperCase().slice(0, 40), life: 160 };
+      setDs({ ...stateRef.current });
+    } finally {
+      setWdkBusy(null);
+    }
+  };
+
+  const doImportSeed = async () => {
+    if (!importSeedValue.trim()) {
+      stateRef.current.notification = { text: "ENTER A SEED PHRASE!", life: 120 };
+      setDs({ ...stateRef.current }); return;
+    }
+    setWdkBusy("wdk-import");
+    try {
+      const { address, provider } = await importWdkWallet(importSeedValue);
+      await _onWalletConnected(address, "solana", provider, "WDK WALLET");
+      setImportSeedOpen(false);
+      setImportSeedValue("");
+    } catch (e: any) {
+      console.warn("[WDK] Seed import failed:", e);
+      stateRef.current.notification = { text: (e?.message || "IMPORT FAILED").toUpperCase().slice(0, 40), life: 160 };
+      setDs({ ...stateRef.current });
+    } finally {
+      setWdkBusy(null);
+    }
+  };
 
   // ── Splash / Tutorial ─────────────────────────────────────────────────────
   const handleSplashSelect = useCallback((map: MapType) => {
@@ -888,6 +1087,28 @@ export default function FarmingGame() {
     localStorage.removeItem("wallet_addr");
     localStorage.removeItem("wallet_type");
     stateRef.current.player.walletAddress = "";
+    // Reset WDK wallet panel state
+    setSolBalance(0);
+    setUsdtBalance(0);
+    setWdkTxHistory([]);
+    setVaultAddress("");
+    setSendUsdtOpen(false);
+    setUsdtRecipient("");
+    setUsdtAmount("");
+    setImportSeedOpen(false);
+    setImportSeedValue("");
+    setShowSeedBackup(false);
+    setEvmAddress("");
+    setEthBalance("0.0000");
+    setEvmUsdtBalance(0);
+    setGaslessUsdtBalance(0);
+    setSendEvmUsdtOpen(false);
+    setEvmRecipient("");
+    setEvmAmount("");
+    setSendGaslessOpen(false);
+    setGaslessRecipient("");
+    setGaslessAmount("");
+    setGaslessQuoteFee(null);
   };
 
   // ── Persistence ───────────────────────────────────────────────────────────
@@ -2353,6 +2574,159 @@ export default function FarmingGame() {
                         <div style={{ fontSize: 4, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>TAP TO COPY</div>
                       </div>
                       <div className="gf" style={{ color: "#FFD700", fontSize: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 14 }}>{ds.player.lifetopiaGold} GOLD</div>
+                      {walletLabel === "WDK WALLET" && (
+                        <>
+                          {/* WDK balances: SOL / LFG / USDT */}
+                          <div style={{ background: "rgba(0,0,0,0.25)", border: "2px solid #5C4033", borderRadius: 10, padding: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 12, textAlign: "center" }}>
+                            <div className="gf" style={{ fontSize: 4, color: "#ab9ff2", marginBottom: 6 }}>WDK SELF-CUSTODIAL — SOLANA DEVNET</div>
+                            <div style={{ display: "flex", justifyContent: "space-around", gap: 6 }}>
+                              <div>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#FFF" }}>{solBalance.toFixed(4)}</div>
+                                <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)" }}>SOL</div>
+                              </div>
+                              <div>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#FFD700" }}>{devnetLFGBalance.toFixed(2)}</div>
+                                <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)" }}>LFG</div>
+                              </div>
+                              <div>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#26A17B" }}>{usdtBalance.toFixed(2)}</div>
+                                <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)" }}>USDT</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Send USDT (Tether) — inline form */}
+                          <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px", background: "linear-gradient(180deg,#26A17B,#176B50)", border: "2px solid #26A17B", color: "#FFF" }}
+                            onClick={() => { AudioManager.playSFX("click"); setSendUsdtOpen(v => !v); }}>
+                            {sendUsdtOpen ? "CANCEL SEND USDT" : "SEND USDT"}
+                          </button>
+                          {sendUsdtOpen && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: isMobile ? 6 : 10 }}>
+                              <input
+                                value={usdtRecipient}
+                                onChange={(e) => setUsdtRecipient(e.target.value)}
+                                placeholder="RECIPIENT ADDRESS"
+                                style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, fontFamily: "monospace", boxSizing: "border-box" }}
+                              />
+                              <input
+                                value={usdtAmount}
+                                onChange={(e) => setUsdtAmount(e.target.value)}
+                                placeholder="AMOUNT (USDT)"
+                                inputMode="decimal"
+                                style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, boxSizing: "border-box" }}
+                              />
+                              <button className="wb gf" disabled={wdkBusy === "usdt-send"} style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: "8px", background: "linear-gradient(180deg,#26A17B,#176B50)", color: "#FFF", border: "2px solid #26A17B" }}
+                                onClick={sendUsdt}>
+                                {wdkBusy === "usdt-send" ? "SENDING..." : "CONFIRM SEND"}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Seed phrase backup — self-custody recovery */}
+                          <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px", background: "linear-gradient(180deg,#FFD700,#C8A020)", border: "2px solid #FFD700", color: "#3E2723" }}
+                            onClick={() => { AudioManager.playSFX("click"); setSeedBackupConfirmed(false); setShowSeedBackup(true); }}>
+                            BACKUP SEED PHRASE
+                          </button>
+
+                          {/* Vault account + policy note */}
+                          <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "6px 8px", marginTop: isMobile ? 2 : 4 }}>
+                            <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.45)", textAlign: "center", marginBottom: 4 }}>
+                              VAULT (INDEX 1) — WDK POLICY: TRANSFER CAP 1,000 LFG / 1,000 USDT
+                            </div>
+                            <div className="gf"
+                              onClick={() => { navigator.clipboard?.writeText(vaultAddress); stateRef.current.notification = { text: "VAULT ADDRESS COPIED!", life: 80 }; setDs({ ...stateRef.current }); }}
+                              style={{ fontSize: isMobile ? 4 : 5, color: "#ab9ff2", wordBreak: "break-all", textAlign: "center", cursor: "pointer", lineHeight: 1.6 }}>
+                              {vaultAddress || "DERIVING..."}
+                            </div>
+                          </div>
+
+                          {/* Recent on-chain activity */}
+                          <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "6px 8px", marginTop: isMobile ? 2 : 4, marginBottom: isMobile ? 2 : 4 }}>
+                            <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.45)", textAlign: "center", marginBottom: 4 }}>RECENT ACTIVITY (SOLSCAN)</div>
+                            {wdkTxHistory.length === 0 ? (
+                              <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "4px 0" }}>NO ON-CHAIN ACTIVITY YET</div>
+                            ) : (
+                              wdkTxHistory.slice(0, 5).map((tx, i) => (
+                                <a key={i} href={`https://solscan.io/tx/${tx.signature}?cluster=devnet`} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: isMobile ? 4 : 5, fontFamily: "monospace", color: tx.err ? "#FF8A80" : "#B9F6CA" }}>
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{tx.signature.slice(0, 20)}...</span>
+                                    <span>{tx.err ? "FAILED" : "OK"}</span>
+                                  </div>
+                                </a>
+                              ))
+                            )}
+                          </div>
+
+                          {/* Multichain — WDK EVM (Sepolia), same seed */}
+                          <div style={{ background: "rgba(0,0,0,0.25)", border: "2px solid #5C4033", borderRadius: 10, padding: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 12, textAlign: "center" }}>
+                            <div className="gf" style={{ fontSize: 4, color: "#ab9ff2", marginBottom: 6 }}>WDK MULTICHAIN — EVM (SEPOLIA), SAME SEED</div>
+                            <div className="gf"
+                              onClick={() => { navigator.clipboard?.writeText(evmAddress); stateRef.current.notification = { text: "EVM ADDRESS COPIED!", life: 80 }; setDs({ ...stateRef.current }); }}
+                              style={{ fontSize: isMobile ? 4 : 5, color: "#B9F6CA", wordBreak: "break-all", textAlign: "center", cursor: "pointer", lineHeight: 1.6, marginBottom: 6 }}>
+                              {evmAddress || "DERIVING..."}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-around", gap: 6 }}>
+                              <div>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#FFF" }}>{ethBalance}</div>
+                                <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)" }}>ETH</div>
+                              </div>
+                              <div>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#26A17B" }}>{evmUsdtBalance.toFixed(2)}</div>
+                                <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)" }}>USDT</div>
+                              </div>
+                            </div>
+                            <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 6, padding: isMobile ? "6px" : "10px", marginTop: 6, background: "linear-gradient(180deg,#26A17B,#176B50)", border: "2px solid #26A17B", color: "#FFF" }}
+                              onClick={() => { AudioManager.playSFX("click"); setSendEvmUsdtOpen(v => !v); }}>
+                              {sendEvmUsdtOpen ? "CANCEL EVM USDT" : "SEND EVM USDT"}
+                            </button>
+                            {sendEvmUsdtOpen && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                                <input value={evmRecipient} onChange={(e) => setEvmRecipient(e.target.value)} placeholder="0x RECIPIENT"
+                                  style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, fontFamily: "monospace", boxSizing: "border-box" }} />
+                                <input value={evmAmount} onChange={(e) => setEvmAmount(e.target.value)} placeholder="AMOUNT (USDT)" inputMode="decimal"
+                                  style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, boxSizing: "border-box" }} />
+                                <button className="wb gf" disabled={wdkBusy === "evm-send"} style={{ width: "100%", fontSize: isMobile ? 5 : 6, padding: "8px", background: "linear-gradient(180deg,#26A17B,#176B50)", color: "#FFF", border: "2px solid #26A17B" }}
+                                  onClick={sendEvmUsdt}>{wdkBusy === "evm-send" ? "SENDING..." : "CONFIRM EVM SEND"}</button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Gasless — WDK Solana paymaster (USDt fees, no SOL) */}
+                          <div style={{ background: "rgba(0,0,0,0.25)", border: "2px solid #5C4033", borderRadius: 10, padding: isMobile ? 8 : 10, marginBottom: isMobile ? 8 : 12, textAlign: "center" }}>
+                            <div className="gf" style={{ fontSize: 4, color: "#ab9ff2", marginBottom: 6 }}>WDK GASLESS — PAYMASTER SPONSORS FEES</div>
+                            {gaslessConfigured ? (
+                              <>
+                                <div className="gf" style={{ fontSize: isMobile ? 7 : 9, color: "#26A17B", marginBottom: 4 }}>{gaslessUsdtBalance.toFixed(2)} USDT (FEE TOKEN)</div>
+                                <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 6, padding: isMobile ? "6px" : "10px", background: "linear-gradient(180deg,#26A17B,#176B50)", border: "2px solid #26A17B", color: "#FFF" }}
+                                  onClick={() => { AudioManager.playSFX("click"); setSendGaslessOpen(v => !v); setGaslessQuoteFee(null); }}>
+                                  {sendGaslessOpen ? "CANCEL GASLESS" : "SEND GASLESS USDT"}
+                                </button>
+                                {sendGaslessOpen && (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                                    <input value={gaslessRecipient} onChange={(e) => setGaslessRecipient(e.target.value)} placeholder="RECIPIENT ADDRESS"
+                                      style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, fontFamily: "monospace", boxSizing: "border-box" }} />
+                                    <input value={gaslessAmount} onChange={(e) => setGaslessAmount(e.target.value)} placeholder="AMOUNT (USDT)" inputMode="decimal"
+                                      style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, boxSizing: "border-box" }} />
+                                    {gaslessQuoteFee !== null && (
+                                      <div className="gf" style={{ fontSize: 4, color: "#B9F6CA" }}>QUOTED FEE: {gaslessQuoteFee} USDT</div>
+                                    )}
+                                    <div style={{ display: "flex", gap: 6 }}>
+                                      <button className="wb gf" disabled={wdkBusy === "gasless-quote"} style={{ flex: 1, fontSize: isMobile ? 5 : 6, padding: "8px", background: "linear-gradient(180deg,#FFD700,#C8A020)", color: "#3E2723", border: "2px solid #FFD700" }}
+                                        onClick={quoteGasless}>{wdkBusy === "gasless-quote" ? "QUOTING..." : "QUOTE FEE"}</button>
+                                      <button className="wb gf" disabled={wdkBusy === "gasless-send"} style={{ flex: 1, fontSize: isMobile ? 5 : 6, padding: "8px", background: "linear-gradient(180deg,#26A17B,#176B50)", color: "#FFF", border: "2px solid #26A17B" }}
+                                        onClick={sendGaslessUsdt}>{wdkBusy === "gasless-send" ? "SENDING..." : "SEND"}</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.5)", lineHeight: 1.8, padding: "4px 0" }}>
+                                PAYMASTER NOT CONFIGURED<br/>SET VITE_SOLANA_PAYMASTER_URL + ADDRESS TO ACTIVATE
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
                       <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 6 : 10 }}>
                         <button className="wb gf" style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: isMobile ? "8px" : "12px" }}
                           onClick={async () => { AudioManager.playSFX("click"); const res = await initializeTokenAccount(); stateRef.current.notification = { text: res.success ? "TOKEN ACCOUNT INITIALIZED!" : (res.error || "INIT FAILED").toUpperCase().slice(0, 40), life: 200 }; setDs({ ...stateRef.current }); }}>
@@ -2380,6 +2754,25 @@ export default function FarmingGame() {
                         <span style={{ flex: 1, textAlign: "center" }}>{connectingWallet === "wdk" ? "..." : "WDK WALLET"}</span>
                         {connectingWallet === "wdk" && <span style={{ position:"absolute", right: isMobile ? 8 : 14, width:8, height:8, border:"2px solid rgba(255,228,181,0.3)", borderTopColor:"#FFE4B5", borderRadius:"50%", animation:"wc-spin 0.7s linear infinite" }} />}
                       </button>
+                      {/* Import an existing WDK seed phrase (recovery flow) */}
+                      <button className="wb gf" onClick={() => { AudioManager.playSFX("click"); setImportSeedOpen(v => !v); }} disabled={connectingWallet !== null}
+                        style={{ fontSize: isMobile ? 5 : 6, padding: isMobile ? "6px" : "10px", width: "100%", background: "linear-gradient(180deg,#3A2A6B,#221344)", border: "2px solid #5C3DF0", color: "#C9B8FF" }}>
+                        {importSeedOpen ? "CLOSE IMPORT" : "IMPORT SEED PHRASE"}
+                      </button>
+                      {importSeedOpen && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <input
+                            value={importSeedValue}
+                            onChange={(e) => setImportSeedValue(e.target.value)}
+                            placeholder="12-WORD SEED PHRASE"
+                            style={{ width: "100%", padding: "8px", fontSize: isMobile ? 5 : 6, background: "rgba(0,0,0,0.3)", color: "#FFE4B5", border: "2px solid #5C4033", borderRadius: 8, boxSizing: "border-box" }}
+                          />
+                          <button className="wb gf" disabled={wdkBusy === "wdk-import"} style={{ width: "100%", fontSize: isMobile ? 5 : 7, padding: "8px", background: "linear-gradient(180deg,#7B5CFF,#4B2ECF)", border: "2px solid #5C3DF0", color: "#FFE4B5" }}
+                            onClick={doImportSeed}>
+                            {wdkBusy === "wdk-import" ? "IMPORTING..." : "CONFIRM IMPORT"}
+                          </button>
+                        </div>
+                      )}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 2px 0" }}>
                         <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.15)" }} />
                         <span className="gf" style={{ fontSize: 5, color: "rgba(255,255,255,0.3)" }}>OR EXTENSIONS</span>
@@ -2818,6 +3211,57 @@ export default function FarmingGame() {
                 CLOSE
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* WDK SEED PHRASE BACKUP MODAL — self-custody recovery flow */}
+      {showSeedBackup && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24 }}
+          onClick={() => setShowSeedBackup(false)}
+        >
+          <div
+            className="wb"
+            style={{ background: "linear-gradient(180deg,#2d1a08,#1a0f04)", border: "3px solid #FFD700", borderRadius: 12, padding: "18px 20px", maxWidth: isMobile ? "94vw" : 440, width: "100%", maxHeight: "88dvh", overflowY: "auto", boxShadow: "0 8px 0 #3a2212, 0 0 40px rgba(255,215,0,0.25)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="gf" style={{ fontSize: 9, color: "#FFD700", textAlign: "center", letterSpacing: 1, marginBottom: 10 }}>SEED PHRASE BACKUP</div>
+            <div className="gf" style={{ fontSize: 5, color: "#FFF", textAlign: "center", lineHeight: 2, marginBottom: 12 }}>
+              THESE 12 WORDS ARE THE ONLY WAY TO RECOVER YOUR SELF-CUSTODIAL WALLET.<br/>WRITE THEM DOWN AND STORE THEM SOMEWHERE SAFE. NEVER SHARE THEM.
+            </div>
+            {(() => {
+              const phrase = getWdkSeedPhrase();
+              const words = phrase ? phrase.trim().split(/\s+/) : [];
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
+                  {words.map((w, i) => (
+                    <div key={i} style={{ background: "rgba(0,0,0,0.4)", border: "1px solid #5C4033", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                      <span className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.4)", display: "block", marginBottom: 2 }}>{i + 1}</span>
+                      <span className="gf" style={{ fontSize: 6, color: "#FFE4B5", wordBreak: "break-all" }}>{w}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <label style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={seedBackupConfirmed} onChange={(e) => setSeedBackupConfirmed(e.target.checked)} style={{ width: 14, height: 14 }} />
+              <span className="gf" style={{ fontSize: 4, color: "rgba(255,255,255,0.65)" }}>I HAVE WRITTEN DOWN ALL 12 WORDS</span>
+            </label>
+            <button
+              className="wb gf"
+              disabled={!seedBackupConfirmed}
+              onClick={() => {
+                AudioManager.playSFX("click");
+                setShowSeedBackup(false);
+                setSeedBackupConfirmed(false);
+                stateRef.current.notification = { text: "SEED BACKED UP — SELF-CUSTODY SECURED!", life: 160 };
+                setDs({ ...stateRef.current });
+              }}
+              style={{ width: "100%", fontSize: isMobile ? 6 : 8, padding: "12px", background: seedBackupConfirmed ? "linear-gradient(180deg,#4CAF50,#2E7D32)" : "rgba(255,255,255,0.1)", border: "2px solid #4CAF50", color: "#FFF", opacity: seedBackupConfirmed ? 1 : 0.6 }}
+            >
+              {seedBackupConfirmed ? "I SAVED MY SEED PHRASE" : "CONFIRM: I SAVED MY SEED PHRASE"}
+            </button>
           </div>
         </div>
       )}
